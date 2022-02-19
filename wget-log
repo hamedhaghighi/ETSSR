@@ -1,0 +1,7 @@
+--2022-02-18 11:12:53--  https://bjbgp01.baidupcs.com/file/f3f2ee52es6cd78201f0f8644719abe2?bkt=en-06f5c65000af0ed6998d0e9c67cc721b1d0511a2b4a03b522cdfce71e708bf98521edf5f11d50ed5
+Resolving bjbgp01.baidupcs.com (bjbgp01.baidupcs.com)... 119.167.143.20
+Connecting to bjbgp01.baidupcs.com (bjbgp01.baidupcs.com)|119.167.143.20|:443... connected.
+HTTP request sent, awaiting response... 400 Bad Request
+Syntax error in Set-Cookie: - at position 1.
+2022-02-18 11:12:55 ERROR 400: Bad Request.
+
