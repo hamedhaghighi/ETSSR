@@ -4,7 +4,7 @@ import torch.backends.cudnn as cudnn
 import argparse
 from utils import *
 from model import *
-
+from visualizer import Visualizer
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -16,10 +16,11 @@ def parse_args():
     parser.add_argument('--start_epoch', type=int, default=0, help='start epoch')
     parser.add_argument('--n_epochs', type=int, default=80, help='number of epochs to train')
     parser.add_argument('--n_steps', type=int, default=30, help='number of epochs to update learning rate')
-    parser.add_argument('--trainset_dir', type=str, default='./data/train/')
-    parser.add_argument('--model_name', type=str, default='iPASSR')
-    parser.add_argument('--load_pretrain', type=bool, default=False)
-    parser.add_argument('--model_path', type=str, default='log/iPASSR.pth.tar')
+    parser.add_argument('--trainset_dir', type=str, default='/media/oem/Local Disk/Phd-datasets/iPASSR/data/train')
+    parser.add_argument('--load', type=bool, default=False)
+    parser.add_argument('--checkpoints_dir', type=str, default='./checkpoints')
+    parser.add_argument('--exp_name', type=str, default='test')
+
     return parser.parse_args()
 
 
@@ -28,9 +29,10 @@ def train(train_loader, cfg):
     cudnn.benchmark = True
     scale = cfg.scale_factor
 
-    if cfg.load_pretrain:
-        if os.path.isfile(cfg.model_path):
-            model = torch.load(cfg.model_path, map_location={'cuda:0': cfg.device})
+    if cfg.load:
+        model_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'model.pth')
+        if os.path.isfile(model_path):
+            model = torch.load(model_path, map_location={'cuda:0': cfg.device})
             net.load_state_dict(model['state_dict'])
             cfg.start_epoch = model["epoch"]
         else:
@@ -44,9 +46,11 @@ def train(train_loader, cfg):
     loss_epoch = []
     loss_list = []
     idx_step = 0 
+    loss_dict = dict(list)
+    vis = Visualizer(cfg)
     for idx_epoch in range(cfg.start_epoch, cfg.n_epochs):
 
-        for idx_iter, (HR_left, HR_right, LR_left, LR_right) in enumerate(train_loader):
+        for idx_step, (HR_left, HR_right, LR_left, LR_right) in enumerate(train_loader):
             b, c, h, w = LR_left.shape
             HR_left, HR_right, LR_left, LR_right  = HR_left.to(cfg.device), HR_right.to(cfg.device),\
                                                     LR_left.to(cfg.device), LR_right.to(cfg.device)
@@ -55,7 +59,7 @@ def train(train_loader, cfg):
 
             ''' SR Loss '''
             loss_SR = criterion_L1(SR_left, HR_left) + criterion_L1(SR_right, HR_right)
-
+            loss_dict['SR'].append(loss_SR)
             ''' Photometric Loss '''
             Res_left = torch.abs(HR_left - F.interpolate(LR_left, scale_factor=scale, mode='bicubic', align_corners=False))
             Res_left = F.interpolate(Res_left, scale_factor=1 / scale, mode='bicubic', align_corners=False)
@@ -67,14 +71,14 @@ def train(train_loader, cfg):
                                    ).view(b, h, w, c).contiguous().permute(0, 3, 1, 2)
             loss_photo = criterion_L1(Res_left * V_left.repeat(1, 3, 1, 1), Res_leftT * V_left.repeat(1, 3, 1, 1)) + \
                          criterion_L1(Res_right * V_right.repeat(1, 3, 1, 1), Res_rightT * V_right.repeat(1, 3, 1, 1))
-
+            loss_dict['photo'].append(loss_photo)
             ''' Smoothness Loss '''
             loss_h = criterion_L1(M_right_to_left[:, :-1, :, :], M_right_to_left[:, 1:, :, :]) + \
                      criterion_L1(M_left_to_right[:, :-1, :, :], M_left_to_right[:, 1:, :, :])
             loss_w = criterion_L1(M_right_to_left[:, :, :-1, :-1], M_right_to_left[:, :, 1:, 1:]) + \
                      criterion_L1(M_left_to_right[:, :, :-1, :-1], M_left_to_right[:, :, 1:, 1:])
             loss_smooth = loss_w + loss_h
-
+            loss_dict['smooth'].append(loss_smooth)
             ''' Cycle Loss '''
             Res_left_cycle = torch.bmm(M_right_to_left.contiguous().view(b * h, w, w), Res_rightT.permute(0, 2, 3, 1).contiguous().view(b * h, w, c)
                                        ).view(b, h, w, c).contiguous().permute(0, 3, 1, 2)
@@ -82,6 +86,7 @@ def train(train_loader, cfg):
                                         ).view(b, h, w, c).contiguous().permute(0, 3, 1, 2)
             loss_cycle = criterion_L1(Res_left * V_left.repeat(1, 3, 1, 1), Res_left_cycle * V_left.repeat(1, 3, 1, 1)) + \
                          criterion_L1(Res_right * V_right.repeat(1, 3, 1, 1), Res_right_cycle * V_right.repeat(1, 3, 1, 1))
+            loss_dict['cycle'].append(loss_cycle)
 
             ''' Consistency Loss '''
             SR_left_res = F.interpolate(torch.abs(HR_left - SR_left), scale_factor=1 / scale, mode='bicubic', align_corners=False)
@@ -92,29 +97,24 @@ def train(train_loader, cfg):
                                       ).view(b, h, w, c).contiguous().permute(0, 3, 1, 2)
             loss_cons = criterion_L1(SR_left_res * V_left.repeat(1, 3, 1, 1), SR_left_resT * V_left.repeat(1, 3, 1, 1)) + \
                        criterion_L1(SR_right_res * V_right.repeat(1, 3, 1, 1), SR_right_resT * V_right.repeat(1, 3, 1, 1))
-
+            loss_dict['cons'].append(loss_cons)
             ''' Total Loss '''
             loss = loss_SR + 0.1 * loss_cons + 0.1 * (loss_photo + loss_smooth + loss_cycle)
+            loss_dict['total_loss'].append(loss)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
             if idx_step % 10 == 0:
-                print('Step:{:d}, Loss: {:f}'.format(idx_step, loss.data.cpu()))
-            idx_step = idx_step + 1
+                # vis.plot_current_losses('train', idx_epoch, , idx_step)
+                avg_loss_dict = {k: np.array(v.data.cpu()).mean() for k , v in loss_dict.item()}
+                vis.print_current_losses('train', idx_epoch, idx_step, avg_loss_dict)
+                vis.plot_current_losses('train', idx_epoch, avg_loss_dict, idx_step)
+
             loss_epoch.append(loss.data.cpu())
 
         scheduler.step()
-
-        if idx_epoch % 1 == 0:
-            loss_list.append(float(np.array(loss_epoch).mean()))
-
-            print('Epoch--%4d, loss--%f, loss_SR--%f, loss_photo--%f, loss_smooth--%f, loss_cycle--%f, loss_cons--%f' %
-                  (idx_epoch + 1, float(np.array(loss_epoch).mean()), float(np.array(loss_SR.data.cpu()).mean()),
-                   float(np.array(loss_photo.data.cpu()).mean()), float(np.array(loss_smooth.data.cpu()).mean()),
-                   float(np.array(loss_cycle.data.cpu()).mean()), float(np.array(loss_cons.data.cpu()).mean())))
-            torch.save({'epoch': idx_epoch + 1, 'state_dict': net.state_dict()},
-                       'log/' + cfg.model_name + '_' + str(cfg.scale_factor) + 'xSR_epoch' + str(idx_epoch + 1) + '.pth.tar')
-            loss_epoch = []
+        save_dir = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '.pth')
+        torch.save({'epoch': idx_epoch + 1, 'state_dict': net.state_dict()}, save_dir)
 
 
 def main(cfg):

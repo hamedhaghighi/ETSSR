@@ -5,7 +5,6 @@ import ntpath
 import time
 import datetime
 import shutil
-from . import util, html
 from subprocess import Popen, PIPE
 from torch.utils.tensorboard import SummaryWriter
 from matplotlib import pyplot as plt
@@ -17,34 +16,34 @@ else:
     VisdomExceptionBase = ConnectionError
 
 
-def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256):
-    """Save images to the disk.
+# def save_images(webpage, visuals, image_path, aspect_ratio=1.0, width=256):
+#     """Save images to the disk.
 
-    Parameters:
-        webpage (the HTML class) -- the HTML webpage class that stores these imaegs (see html.py for more details)
-        visuals (OrderedDict)    -- an ordered dictionary that stores (name, images (either tensor or numpy) ) pairs
-        image_path (str)         -- the string is used to create image paths
-        aspect_ratio (float)     -- the aspect ratio of saved images
-        width (int)              -- the images will be resized to width x width
+#     Parameters:
+#         webpage (the HTML class) -- the HTML webpage class that stores these imaegs (see html.py for more details)
+#         visuals (OrderedDict)    -- an ordered dictionary that stores (name, images (either tensor or numpy) ) pairs
+#         image_path (str)         -- the string is used to create image paths
+#         aspect_ratio (float)     -- the aspect ratio of saved images
+#         width (int)              -- the images will be resized to width x width
 
-    This function will save images stored in 'visuals' to the HTML file specified by 'webpage'.
-    """
-    image_dir = webpage.get_image_dir()
-    short_path = ntpath.basename(image_path[0])
-    name = os.path.splitext(short_path)[0]
+#     This function will save images stored in 'visuals' to the HTML file specified by 'webpage'.
+#     """
+#     image_dir = webpage.get_image_dir()
+#     short_path = ntpath.basename(image_path[0])
+#     name = os.path.splitext(short_path)[0]
 
-    webpage.add_header(name)
-    ims, txts, links = [], [], []
+#     webpage.add_header(name)
+#     ims, txts, links = [], [], []
 
-    for label, im_data in visuals.items():
-        im = util.tensor2im(im_data)
-        image_name = '%s_%s.png' % (name, label)
-        save_path = os.path.join(image_dir, image_name)
-        util.save_image(im, save_path, aspect_ratio=aspect_ratio)
-        ims.append(image_name)
-        txts.append(label)
-        links.append(image_name)
-    webpage.add_images(ims, txts, links, width=width)
+#     for label, im_data in visuals.items():
+#         im = util.tensor2im(im_data)
+#         image_name = '%s_%s.png' % (name, label)
+#         save_path = os.path.join(image_dir, image_name)
+#         util.save_image(im, save_path, aspect_ratio=aspect_ratio)
+#         ims.append(image_name)
+#         txts.append(label)
+#         links.append(image_name)
+#     webpage.add_images(ims, txts, links, width=width)
 
 
 class Visualizer():
@@ -63,25 +62,25 @@ class Visualizer():
         Step 3: create an HTML object for saveing HTML filters
         Step 4: create a logging file to store training losses
         """
-        exp_name = os.path.join(opt.checkpoints_dir, opt.name)
-        if not opt.continue_train:
-            if os.path.exists(exp_name):
+        exp_path = os.path.join(opt.checkpoints_dir, opt.exp_name)
+        if not opt.load:
+            if os.path.exists(exp_path):
                 reply = ''
                 
                 while not reply.startswith('y') and not reply.startswith('n'):
-                    reply = str(input(f'exp_name {exp_name} exists. Do you want to delete it? (y/n): \n')).lower().strip()
+                    reply = str(input(
+                        f'exp_name {exp_path} exists. Do you want to delete it? (y/n): \n')).lower().strip()
                 if reply.startswith('y'):
-                    shutil.rmtree(exp_name)
+                    shutil.rmtree(exp_path)
                 else:
                     exit(0)
-        if opt.isTrain:
-            self.tb_dir = os.path.join(exp_name +'/TB/', datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
-            os.makedirs(self.tb_dir, exist_ok=True)
-            self.writer = SummaryWriter(self.tb_dir)
-            self.log_name = os.path.join(opt.checkpoints_dir, opt.name, 'loss_log.txt')
-            with open(self.log_name, "a") as log_file:
-                now = time.strftime("%c")
-                log_file.write('================ Training Loss (%s) ================\n' % now)
+        self.tb_dir = os.path.join(exp_path, 'TB', datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
+        os.makedirs(self.tb_dir, exist_ok=True)
+        self.writer = SummaryWriter(self.tb_dir)
+        self.log_name = os.path.join(opt.checkpoints_dir, opt.exp_name, 'loss_log.txt')
+        with open(self.log_name, "a") as log_file:
+            now = time.strftime("%c")
+            log_file.write('================ Training Loss (%s) ================\n' % now)
 
     def reset(self):
         """Reset the self.saved status"""

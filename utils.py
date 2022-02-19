@@ -46,7 +46,10 @@ def augmentation(hr_image_left, hr_image_right, lr_image_left, lr_image_right):
                 np.ascontiguousarray(lr_image_left), np.ascontiguousarray(lr_image_right)
 
 def toTensor(img):
-    img = torch.from_numpy(np.transpose(img, (0, 3, 1, 2)))
+    if len(img.shape) == 4:
+        img = torch.from_numpy(np.transpose(img, (0, 3, 1, 2)))
+    else:
+        img = torch.from_numpy(np.transpose(img, (2, 0, 1)))
     return img.float().div(255)
 
 def toNdarray(tensor):
