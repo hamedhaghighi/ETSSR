@@ -71,10 +71,9 @@ def train(train_loader, cfg):
         train_tq = tqdm.tqdm(total=n_trainbatch, desc='Iter', position=3)
         for _ in range(len(train_tq)):
             HR_left, HR_right, LR_left, LR_right = next(train_dl)
-            b, c, h, w = LR_left.shape
-            HR_left, HR_right, LR_left, LR_right = HR_left.to(cfg.device)[:, :3], HR_right[:, :3].to(cfg.device),\
-                LR_left.to(cfg.device)[:, :3], LR_right.to(cfg.device)[:, :3]
-
+            b, c, h, w = LR_left[:, :3].shape
+            HR_left, HR_right, LR_left, LR_right = HR_left.to(cfg.device)[:, :3], HR_right.to(cfg.device)[:, :3],\
+                LR_left.to(cfg.device), LR_right.to(cfg.device)
             SR_left, SR_right, (M_right_to_left, M_left_to_right), (V_left, V_right) = net(LR_left, LR_right, is_training=1)
 
             ''' SR Loss '''
@@ -83,7 +82,7 @@ def train(train_loader, cfg):
             ''' Photometric Loss '''
             Res_left = torch.abs(HR_left - F.interpolate(LR_left[:, :3], scale_factor=scale, mode='bicubic', align_corners=False))
             Res_left = F.interpolate(Res_left, scale_factor=1 / scale, mode='bicubic', align_corners=False)
-            Res_right = torch.abs(HR_right - F.interpolate(LR_right[:,:3], scale_factor=scale, mode='bicubic', align_corners=False))
+            Res_right = torch.abs(HR_right - F.interpolate(LR_right[:, :3], scale_factor=scale, mode='bicubic', align_corners=False))
             Res_right = F.interpolate(Res_right, scale_factor=1 / scale, mode='bicubic', align_corners=False)
             Res_leftT = torch.bmm(M_right_to_left.contiguous().view(b * h, w, w), Res_right.permute(0, 2, 3, 1).contiguous().view(b * h, w, c)
                                   ).view(b, h, w, c).contiguous().permute(0, 3, 1, 2)
