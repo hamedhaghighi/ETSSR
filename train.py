@@ -30,9 +30,10 @@ def parse_args():
     parser.add_argument('--start_epoch', type=int, default=0, help='start epoch')
     parser.add_argument('--n_epochs', type=int, default=80, help='number of epochs to train')
     parser.add_argument('--n_steps', type=int, default=30, help='number of epochs to update learning rate')
-    parser.add_argument('--trainset_dir', type=str, default='/media/oem/Local Disk/Phd-datasets/iPASSR/data/train')
+    parser.add_argument('--trainset_dir', type=str, default='/media/oem/Local Disk/Phd-datasets/iPASSR/datasets_Airsim')
     parser.add_argument('--load', type=bool, default=False)
     parser.add_argument('--fast_test', default=False, action='store_true')
+    parser.add_argument('--train_on_sim', default=False, action='store_true')
     parser.add_argument('--checkpoints_dir', type=str, default='./checkpoints')
     parser.add_argument('--exp_name', type=str, default='test')
 
@@ -40,7 +41,8 @@ def parse_args():
 
 
 def train(train_loader, cfg):
-    net = Net(cfg.scale_factor).to(cfg.device)
+    input_channel = 10 if cfg.train_on_sim else 3
+    net = Net(cfg.scale_factor, input_channel).to(cfg.device)
     cudnn.benchmark = True
     scale = cfg.scale_factor
 
@@ -70,8 +72,8 @@ def train(train_loader, cfg):
         for _ in range(len(train_tq)):
             HR_left, HR_right, LR_left, LR_right = next(train_dl)
             b, c, h, w = LR_left.shape
-            HR_left, HR_right, LR_left, LR_right  = HR_left.to(cfg.device), HR_right.to(cfg.device),\
-                                                    LR_left.to(cfg.device), LR_right.to(cfg.device)
+            HR_left, HR_right, LR_left, LR_right = HR_left.to(cfg.device)[:, :3], HR_right[:, :3].to(cfg.device),\
+                LR_left.to(cfg.device)[:, :3], LR_right.to(cfg.device)[:, :3]
 
             SR_left, SR_right, (M_right_to_left, M_left_to_right), (V_left, V_right) = net(LR_left, LR_right, is_training=1)
 
@@ -79,9 +81,9 @@ def train(train_loader, cfg):
             loss_SR = criterion_L1(SR_left, HR_left) + criterion_L1(SR_right, HR_right)
             loss_dict['SR'].append(loss_SR.data.cpu())
             ''' Photometric Loss '''
-            Res_left = torch.abs(HR_left - F.interpolate(LR_left, scale_factor=scale, mode='bicubic', align_corners=False))
+            Res_left = torch.abs(HR_left - F.interpolate(LR_left[:, :3], scale_factor=scale, mode='bicubic', align_corners=False))
             Res_left = F.interpolate(Res_left, scale_factor=1 / scale, mode='bicubic', align_corners=False)
-            Res_right = torch.abs(HR_right - F.interpolate(LR_right, scale_factor=scale, mode='bicubic', align_corners=False))
+            Res_right = torch.abs(HR_right - F.interpolate(LR_right[:,:3], scale_factor=scale, mode='bicubic', align_corners=False))
             Res_right = F.interpolate(Res_right, scale_factor=1 / scale, mode='bicubic', align_corners=False)
             Res_leftT = torch.bmm(M_right_to_left.contiguous().view(b * h, w, w), Res_right.permute(0, 2, 3, 1).contiguous().view(b * h, w, c)
                                   ).view(b, h, w, c).contiguous().permute(0, 3, 1, 2)

@@ -7,10 +7,10 @@ from skimage import morphology
 from torchvision import transforms
 
 class Net(nn.Module):
-    def __init__(self, upscale_factor):
+    def __init__(self, upscale_factor, input_channel = 3):
         super(Net, self).__init__()
         self.upscale_factor = upscale_factor
-        self.init_feature = nn.Conv2d(3, 64, 3, 1, 1, bias=True)
+        self.init_feature = nn.Conv2d(input_channel, 64, 3, 1, 1, bias=True)
         self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=4)
         self.pam = PAM(64)
         self.fusion = nn.Sequential(
@@ -24,8 +24,8 @@ class Net(nn.Module):
             nn.Conv2d(64, 3, 3, 1, 1, bias=True))
 
     def forward(self, x_left, x_right, is_training):
-        x_left_upscale = F.interpolate(x_left, scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
-        x_right_upscale = F.interpolate(x_right, scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
+        x_left_upscale = F.interpolate(x_left[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
+        x_right_upscale = F.interpolate(x_right[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
         buffer_left = self.init_feature(x_left)
         buffer_right = self.init_feature(x_right)
         buffer_left, catfea_left = self.deep_feature(buffer_left)

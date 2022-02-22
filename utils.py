@@ -9,17 +9,25 @@ import numpy as np
 class TrainSetLoader(Dataset):
     def __init__(self, cfg):
         super(TrainSetLoader, self).__init__()
+        self.cfg = cfg
         self.dataset_dir = cfg.trainset_dir + '/patches_x' + str(cfg.scale_factor)
         self.file_list = os.listdir(self.dataset_dir)
     def __getitem__(self, index):
-        img_hr_left  = Image.open(self.dataset_dir + '/' + self.file_list[index] + '/hr0.png')
-        img_hr_right = Image.open(self.dataset_dir + '/' + self.file_list[index] + '/hr1.png')
-        img_lr_left  = Image.open(self.dataset_dir + '/' + self.file_list[index] + '/lr0.png')
-        img_lr_right = Image.open(self.dataset_dir + '/' + self.file_list[index] + '/lr1.png')
-        img_hr_left  = np.array(img_hr_left,  dtype=np.float32)
-        img_hr_right = np.array(img_hr_right, dtype=np.float32)
-        img_lr_left  = np.array(img_lr_left,  dtype=np.float32)
-        img_lr_right = np.array(img_lr_right, dtype=np.float32)
+        if self.cfg.train_on_sim:
+            img_hr_left = np.load(self.dataset_dir + '/' + self.file_list[index] + '/hr0.npy')
+            img_hr_right = np.load(self.dataset_dir + '/' + self.file_list[index] + '/hr1.npy')
+            img_lr_left = np.load(self.dataset_dir + '/' + self.file_list[index] + '/lr0.npy')
+            img_lr_right = np.load(self.dataset_dir + '/' + self.file_list[index] + '/lr1.npy')
+
+        else:
+            img_hr_left  = Image.open(self.dataset_dir + '/' + self.file_list[index] + '/hr0.png')
+            img_hr_right = Image.open(self.dataset_dir + '/' + self.file_list[index] + '/hr1.png')
+            img_lr_left  = Image.open(self.dataset_dir + '/' + self.file_list[index] + '/lr0.png')
+            img_lr_right = Image.open(self.dataset_dir + '/' + self.file_list[index] + '/lr1.png')
+            img_hr_left  = np.array(img_hr_left,  dtype=np.float32)
+            img_hr_right = np.array(img_hr_right, dtype=np.float32)
+            img_lr_left  = np.array(img_lr_left,  dtype=np.float32)
+            img_lr_right = np.array(img_lr_right, dtype=np.float32)
         img_hr_left, img_hr_right, img_lr_left, img_lr_right = augmentation(img_hr_left, img_hr_right, img_lr_left, img_lr_right)
         return toTensor(img_hr_left), toTensor(img_hr_right), toTensor(img_lr_left), toTensor(img_lr_right)
 
