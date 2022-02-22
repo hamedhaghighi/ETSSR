@@ -1,0 +1,120 @@
+{
+  "SeeDocsAt": "https://github.com/Microsoft/AirSim/blob/master/docs/settings.md",
+  "SettingsVersion": 1.2,
+  "SimMode": "Car",
+  "CameraDefaults": {
+    "CaptureSettings": [
+      {
+        "Width": 256,
+        "Height": 256,
+        "FOV_Degrees": 90
+      }
+    ]
+  },
+  "SubWindows": [
+    {
+      "WindowID": 0,
+      "CameraName": "0",
+      "ImageType": 1,
+      "VehicleName": "mycar",
+      "Visible": false,
+      "External": false
+    },
+    {
+      "WindowID": 1,
+      "CameraName": "0",
+      "ImageType": 0,
+      "VehicleName": "mycar",
+      "Visible": false,
+      "External": false
+    }
+  ],
+  "Vehicles": {
+    "mycar": {
+      "VehicleType": "PhysXCar",
+      "Cameras": {
+        "0": {
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 1280,
+              "Height": 720
+            },
+            {
+              "ImageType": 1,
+              "Width": 1280,
+              "Height": 720
+            },
+            {
+              "ImageType": 5,
+              "Width": 1280,
+              "Height": 720
+            },
+            {
+              "ImageType": 6,
+              "Width": 1280,
+              "Height": 720
+            }
+          ],
+          "Roll": 0.0,
+          "Yaw": 0.0,
+          "X": 1.0,
+          "Y": -0.06,
+          "Z": -1.65
+        },
+        "1": {
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 1280,
+              "Height": 720
+            },
+            {
+              "ImageType": 1,
+              "Width": 1280,
+              "Height": 720
+            }
+            ,
+            {
+              "ImageType": 5,
+              "Width": 1280,
+              "Height": 720
+            },
+            {
+              "ImageType": 6,
+              "Width": 1280,
+              "Height": 720
+            }
+          ],
+          "Roll": 0.0,
+          "Yaw": 0.0,
+          "X": 1.0,
+          "Y": 0.48,
+          "Z": -1.65
+        }
+      }
+    }
+  },
+  "Recording": {
+    "RecordOnMove": false,
+    "RecordInterval": 0.05,
+    "Folder": "",
+    "Enabled": false,
+    "Cameras": [
+      {
+        "CameraName": "0",
+        "ImageType": 0,
+        "PixelsAsFloat": false,
+        "VehicleName": "mycar",
+        "Compress": true
+      },
+      {
+        "CameraName": "1",
+        "ImageType": 0,
+        "PixelsAsFloat": false,
+        "VehicleName": "mycar",
+        "Compress": true
+      }
+    ]
+  }
+}
