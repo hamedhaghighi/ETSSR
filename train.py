@@ -30,7 +30,7 @@ def parse_args():
     parser.add_argument('--start_epoch', type=int, default=0, help='start epoch')
     parser.add_argument('--n_epochs', type=int, default=80, help='number of epochs to train')
     parser.add_argument('--n_steps', type=int, default=30, help='number of epochs to update learning rate')
-    parser.add_argument('--trainset_dir', type=str, default='/media/oem/Local Disk/Phd-datasets/iPASSR/datasets_Airsim')
+    parser.add_argument('--trainset_dir', type=str, default='/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR')
     parser.add_argument('--load', type=bool, default=False)
     parser.add_argument('--fast_test', default=False, action='store_true')
     parser.add_argument('--train_on_sim', default=False, action='store_true')
