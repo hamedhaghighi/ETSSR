@@ -6,21 +6,12 @@ from PIL import Image
 import argparse
 import os
 from model import *
-from utils import toNdarray, toTensor
+from dataset import toNdarray, toTensor
 from skimage.measure import compare_psnr, compare_ssim
 import matplotlib.pyplot as plt
-
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--testset_dir', type=str, default='/media/oem/Local Disk/Phd-datasets/iPASSR/datasets_Airsim')
-    parser.add_argument('--scale_factor', type=int, default=2)
-    parser.add_argument('--device', type=str, default='cuda:0')
-    parser.add_argument('--model_name', type=str, default='iPASSR_2xSR')
-    parser.add_argument('--checkpoints_dir', type=str, default='./checkpoints')
-    parser.add_argument('--exp_name', type=str, default='test')
-    return parser.parse_args()
-
+import yaml
+import dataset
+import tqdm
 
 def patchify_img(img, h_patch, w_patch):
     assert len(img.shape) == 3
@@ -41,16 +32,28 @@ def biggest_divisior(n):
         if n % i == 0:
             return i
 
+
+class cfg_parser():
+    def __init__(self, args):
+        opt_dict = yaml.safe_load(open(args.cfg, 'r'))
+        for k, v in opt_dict.items():
+            setattr(self, k, v)
+        if args.data_dir != '':
+            self.data_dir = args.data_dir
+        self.fast_test = args.fast_test
+        self.cfg_path = args.cfg
+
 def test(cfg):
-    net = Net(cfg.scale_factor).to(cfg.device)
+    net = Net(cfg.scale_factor, cfg.input_channel).to(cfg.device)
     model_path = os.path.join(
     cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '.pth')
     model = torch.load(model_path, map_location={'cuda:0': cfg.device})
     net.load_state_dict(model['state_dict'])
-    file_list = os.listdir(cfg.testset_dir + cfg.dataset + '/lr_x' + str(cfg.scale_factor))
-    for idx in range(len(file_list)):
-        LR_left = np.asarray(Image.open(cfg.testset_dir + cfg.dataset + '/lr_x' + str(cfg.scale_factor) + '/' + file_list[idx] + '/lr0.png'))
-        LR_right = np.asarray(Image.open(cfg.testset_dir + cfg.dataset + '/lr_x' + str(cfg.scale_factor) + '/' + file_list[idx] + '/lr1.png'))
+    image_folders = os.listdir()
+    test_set = dataset.DataSetLoader(cfg, to_tensor=False)
+    test_tq = tqdm.tqdm(total=len(test_set), desc='Iter', position=3)
+    for idx in range(len(test_tq)):
+        HR_left, HR_right, LR_left, LR_right = test_set[idx]
         h, w, _ = LR_left.shape
         h_patch = biggest_divisior(h)
         w_patch = biggest_divisior(w)
@@ -66,7 +69,6 @@ def test(cfg):
             e = (i+1) * batch_size
             lr_left_patches_b, lr_right_patches_b = toTensor(lr_left_patches[s:e]), toTensor(lr_right_patches[s:e])
             lr_left_patches_b, lr_right_patches_b = lr_left_patches_b.to(cfg.device), lr_right_patches_b.to(cfg.device)
-            scene_name = file_list[idx]
             with torch.no_grad():
                 SR_left_patches_b, SR_right_patches_b = net(lr_left_patches_b, lr_right_patches_b, is_training=0)
                 SR_left_patches_b, SR_right_patches_b = torch.clamp(SR_left_patches_b, 0, 1), torch.clamp(SR_right_patches_b, 0, 1)
@@ -76,19 +78,20 @@ def test(cfg):
         sr_right_patches = np.concatenate(sr_right_list, axis=0)
 
         sr_left, sr_right = unify_patches(sr_left_patches, n_h, n_w), unify_patches(sr_right_patches, n_h, n_w)
-        HR_left = Image.open(cfg.testset_dir + cfg.dataset + '/hr/' + file_list[idx] + '/hr0.png')
-        HR_right = Image.open(cfg.testset_dir + cfg.dataset +'/hr/' + file_list[idx] + '/hr1.png')
-        psnr_left = compare_psnr(np.asarray(HR_left), sr_left)
-        psnr_right = compare_psnr(np.asarray(HR_right), sr_right)
-        ssim_left = compare_ssim(np.asarray(HR_left), sr_left, multichannel=True)
-        ssim_right = compare_ssim(np.asarray(HR_right), sr_right, multichannel=True)
+        psnr_left = compare_psnr(HR_left.astype('uint8'), sr_left)
+        psnr_right = compare_psnr(HR_right.astype('uint8'), sr_right)
+        ssim_left = compare_ssim(HR_left.astype('uint8'), sr_left, multichannel=True)
+        ssim_right = compare_ssim(HR_right.astype('uint8'), sr_right, multichannel=True)
         
         print('id:', idx, 'psnr_left:', psnr_left, 'psnr_right:', psnr_right)
         print('id:', idx, 'ssim_left:', ssim_left, 'ssim_right:', ssim_right)
-        plt.imshow(sr_left)
+        plt.figure(0)
+        plt.imshow(LR_right.astype('uint8'))
+        plt.figure(1)
+        plt.imshow(LR_left.astype('uint8'))
         plt.show()
-        plt.imshow(HR_left)
-        plt.show()
+        test_tq.update(1)
+
         # save_path = './results/' + cfg.model_name + '/' + cfg.dataset
             # if not os.path.exists(save_path):
             #     os.makedirs(save_path)
@@ -99,10 +102,14 @@ def test(cfg):
 
 
 if __name__ == '__main__':
-    cfg = parse_args()
-    dataset_list = ['Flickr1024', 'KITTI2012', 'KITTI2015', 'Middlebury']
-    f
-    for i in range(len(dataset_list)):
-        cfg.dataset = dataset_list[i]
-        test(cfg)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--cfg', type=str, help='Path of the config file')
+    parser.add_argument('--data_dir', type=str, default='',
+                        help='Path of the dataset')
+    parser.add_argument('--fast_test', default=False, action='store_true')
+
+    args = parser.parse_args()
+    cfg = cfg_parser(args)
+    cfg.data_dir = os.path.join(cfg.data_dir, cfg.dataset)
+    test(cfg)
     print('Finished!')

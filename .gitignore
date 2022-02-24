@@ -10,6 +10,5 @@ checkpoints
 devel/
 logs/
 external.hpp
-/configs/train_*.yaml
-/configs/test_*.yaml
 log/
+configs/

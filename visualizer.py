@@ -46,24 +46,24 @@ else:
 #     webpage.add_images(ims, txts, links, width=width)
 
 
-class Visualizer():
+class Logger():
     """This class includes several functions that can display/save images and print/save logging information.
 
     It uses a Python library 'visdom' for display, and a Python library 'dominate' (wrapped in 'HTML') for creating HTML files with images.
     """
 
-    def __init__(self, opt):
+    def __init__(self, cfg):
         """Initialize the Visualizer class
 
         Parameters:
-            opt -- stores all the experiment flags; needs to be a subclass of BaseOptions
-        Step 1: Cache the training/test options
+            cfg -- stores all the experiment flags; needs to be a subclass of Basecfgions
+        Step 1: Cache the training/test cfgions
         Step 2: connect to a visdom server
         Step 3: create an HTML object for saveing HTML filters
         Step 4: create a logging file to store training losses
         """
-        exp_path = os.path.join(opt.checkpoints_dir, opt.exp_name)
-        if not opt.load:
+        exp_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name)
+        if not cfg.load:
             if os.path.exists(exp_path):
                 reply = ''
                 
@@ -76,8 +76,9 @@ class Visualizer():
                     exit(0)
         self.tb_dir = os.path.join(exp_path, 'TB', datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))
         os.makedirs(self.tb_dir, exist_ok=True)
+        shutil.copy(cfg.cfg_path, exp_path)
         self.writer = SummaryWriter(self.tb_dir)
-        self.log_name = os.path.join(opt.checkpoints_dir, opt.exp_name, 'loss_log.txt')
+        self.log_name = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'loss_log.txt')
         with open(self.log_name, "a") as log_file:
             now = time.strftime("%c")
             log_file.write('================ Training Loss (%s) ================\n' % now)

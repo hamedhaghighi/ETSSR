@@ -4,41 +4,35 @@ import torch.backends.cudnn as cudnn
 import argparse
 from utils import *
 from model import *
-from visualizer import Visualizer
+import dataset
+from visualizer import Logger
 from collections import defaultdict
 import tqdm
-
+import yaml
+import os
 
 def modify_opt_for_fast_test(opt):
     opt.n_epochs = 2
+    opt.batch_size = 2
+    opt.exp_name = 'test'
     # opt.epoch_decay = opt.n_epochs//2
     # opt.display_freq = 1
     # opt.print_freq = 1
     # opt.save_latest_freq = 100
     # opt.max_dataset_size = 10
-    opt.batch_size = 2
-    opt.exp_name = 'test'
 
 
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--scale_factor", type=int, default=2)
-    parser.add_argument('--device', type=str, default='cuda:0')
-    parser.add_argument('--batch_size', type=int, default=36)
-    parser.add_argument('--lr', type=float, default=2e-4, help='initial learning rate')
-    parser.add_argument('--gamma', type=float, default=0.5, help='')
-    parser.add_argument('--start_epoch', type=int, default=0, help='start epoch')
-    parser.add_argument('--n_epochs', type=int, default=80, help='number of epochs to train')
-    parser.add_argument('--n_steps', type=int, default=30, help='number of epochs to update learning rate')
-    parser.add_argument('--trainset_dir', type=str, default='/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR')
-    parser.add_argument('--load', type=bool, default=False)
-    parser.add_argument('--fast_test', default=False, action='store_true')
-    parser.add_argument('--train_on_sim', default=False, action='store_true')
-    parser.add_argument('--checkpoints_dir', type=str, default='./checkpoints')
-    parser.add_argument('--exp_name', type=str, default='test')
 
-    return parser.parse_args()
 
+class cfg_parser():
+    def __init__(self, args):
+        opt_dict = yaml.safe_load(open(args.cfg, 'r'))
+        for k, v in opt_dict.items():
+            setattr(self, k, v)
+        if args.data_dir != '':
+            self.data_dir = args.data_dir
+        self.fast_test = args.fast_test
+        self.cfg_path = args.cfg
 
 def train(train_loader, cfg):
     input_channel = 10 if cfg.train_on_sim else 3
@@ -64,7 +58,7 @@ def train(train_loader, cfg):
     loss_list = []
     idx_step = 0 
     loss_dict = defaultdict(list)
-    vis = Visualizer(cfg)
+    vis = Logger(cfg)
     for idx_epoch in range(cfg.start_epoch, cfg.n_epochs):
         train_dl = iter(train_loader)
         n_trainbatch = len(train_loader) if not cfg.fast_test else 2
@@ -140,12 +134,20 @@ def train(train_loader, cfg):
 
 
 def main(cfg):
-    train_set = TrainSetLoader(cfg)
+    train_set = dataset.DataSetLoader(cfg)
     train_loader = DataLoader(dataset=train_set, num_workers=6, batch_size=cfg.batch_size, shuffle=True)
     train(train_loader, cfg)
 
 if __name__ == '__main__':
-    cfg = parse_args()
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--cfg', type=str, help='Path of the config file')
+    parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset')
+    parser.add_argument('--fast_test', default=False, action='store_true')
+    args = parser.parse_args()
+    cfg = cfg_parser(args)
+    torch.manual_seed(0)
+    np.random.seed(0)
     if cfg.fast_test:
         modify_opt_for_fast_test(cfg)
     main(cfg)

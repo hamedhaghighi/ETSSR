@@ -1,33 +1,40 @@
 import os
+from turtle import down
 import numpy as np
 import cv2
 
-root_dir ='/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR'
+# root_dir ='/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR'
+root_dir = '/media/oem/Local Disk/Phd-datasets/iPASSR/data/testx2/AirSim'
+dest_dir = '/media/oem/Local Disk/Phd-datasets/iPASSR/data/train/AirSim'
 
 def modcrop(img, scale):
     h , w = img.shape[0], img.shape[1]
     return img[ : int((h//scale)*scale), :int((w//scale) * scale)]
-    
+
+
+def downsample(img):
+    img_d = cv2.resize(img.astype('uint8'), (int(0.5 * img.shape[1]), int(0.5 * img.shape[0])), interpolation=cv2.INTER_CUBIC)
+    img_d = img_d.astype('float32')
+    img_d[:, :, 3] = cv2.resize(img[:, :, 3], (int(0.5 * img.shape[1]), int(0.5 * img.shape[0])))
+    return img_d
+
 # Create dataset folder
 scale = 2
 idx_patch = 1
-match_data_list = []
 # Get list of scenes in Milddlebury's stereo training dataset and iterate through them
 for env_folder in os.listdir(root_dir):
     env_path = os.path.join(root_dir, env_folder)
     for image_folder in os.listdir(env_path):
         image_path = os.path.join(env_path, image_folder)
-        left_image = np.load(image_path + '/im0.npy')
-        right_image = np.load(image_path + '/im1.npy')
+        left_image = np.load(image_path + '/hr0.npy')
+        right_image = np.load(image_path + '/hr1.npy')
         # # Scene data class contains the following data:
         img_hr_0 = modcrop(left_image, scale)
         img_hr_1 = modcrop(right_image, scale)
-        img_lr_0 = cv2.resize(img_hr_0.astype('uint8'), (int(0.5 * img_hr_0.shape[1]) , int(0.5 * img_hr_0.shape[0])), interpolation=cv2.INTER_CUBIC)
-        img_lr_1 = cv2.resize(img_hr_1.astype('uint8'), (int(0.5 * img_hr_1.shape[1]), int(0.5 * img_hr_1.shape[0])), interpolation=cv2.INTER_CUBIC)
-        img_lr_0 = img_lr_0.astype('float32')
-        img_lr_1 = img_lr_1.astype('float32')
-        img_lr_0[:,:,3] = cv2.resize(img_hr_0[:,:,3], (int(0.5 * img_hr_0.shape[1]), int(0.5 * img_hr_0.shape[0])))
-        img_lr_1[:,:,3] = cv2.resize(img_hr_1[:,:,3], (int(0.5 * img_hr_1.shape[1]), int(0.5 * img_hr_1.shape[0])))
+        img_lr_0 = downsample(img_hr_0)
+        img_lr_1 = downsample(img_hr_1)
+        np.save(image_path + '/lr0.npy', img_lr_0)
+        np.save(image_path + '/lr1.npy', img_lr_1)
         for x_lr in range(2, img_lr_0.shape[0] - 32, 20):
             for y_lr in range(2, img_lr_0.shape[1] - 92, 20):
                 x_hr = x_lr * scale
@@ -36,12 +43,12 @@ for env_folder in os.listdir(root_dir):
                 hr_patch_1 = img_hr_1[x_hr: (x_lr + 30)*scale, y_hr: (y_lr + 90)*scale]
                 lr_patch_0 = img_lr_0[x_lr: x_lr + 30, y_lr: y_lr + 90]
                 lr_patch_1 = img_lr_1[x_lr: x_lr + 30, y_lr: y_lr + 90]
-                dst_root = os.path.join(root_dir, 'patches_x{:d}/{:06d}'.format(scale, idx_patch)) 
-                os.makedirs(dst_root, exist_ok=True)
-                np.save(dst_root + '/hr0.npy', hr_patch_0)
-                np.save(dst_root + '/hr1.npy', hr_patch_1)
-                np.save(dst_root + '/lr0.npy', lr_patch_0)
-                np.save(dst_root + '/lr1.npy', lr_patch_1)
+                dst_img_folder = os.path.join(dest_dir, 'patches_x{:d}/{:06d}'.format(scale, idx_patch)) 
+                os.makedirs(dst_img_folder, exist_ok=True)
+                np.save(dst_img_folder + '/hr0.npy', hr_patch_0)
+                np.save(dst_img_folder + '/hr1.npy', hr_patch_1)
+                np.save(dst_img_folder + '/lr0.npy', lr_patch_0)
+                np.save(dst_img_folder + '/lr1.npy', lr_patch_1)
                 print('writing patch id:', idx_patch)
                 idx_patch = idx_patch + 1
     
