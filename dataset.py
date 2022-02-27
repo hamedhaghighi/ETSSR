@@ -25,8 +25,8 @@ class DataSetLoader(Dataset):
 
     def __getitem__(self, index):
         ext = '.npy' if self.cfg.train_on_sim else '.png'
-        img_hr_left = self.read_img(self.dataset_dir + '/' + self.file_list[index] + '/hr0' + ext)
-        img_hr_right = self.read_img(self.dataset_dir + '/' + self.file_list[index] + '/hr1' + ext)
+        img_hr_left = self.read_img(self.dataset_dir + '/' + self.file_list[index] + '/hr0' + ext)[..., :3]
+        img_hr_right = self.read_img(self.dataset_dir + '/' + self.file_list[index] + '/hr1' + ext)[..., :3]
         img_lr_left = self.read_img(self.dataset_dir + '/' + self.file_list[index] + '/lr0' + ext)
         img_lr_right = self.read_img(self.dataset_dir + '/' + self.file_list[index] + '/lr1' + ext)
         if self.to_tensor:

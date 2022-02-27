@@ -86,9 +86,9 @@ def test(cfg):
         print('id:', idx, 'psnr_left:', psnr_left, 'psnr_right:', psnr_right)
         print('id:', idx, 'ssim_left:', ssim_left, 'ssim_right:', ssim_right)
         plt.figure(0)
-        plt.imshow(LR_right.astype('uint8'))
+        plt.imshow(sr_left.astype('uint8'))
         plt.figure(1)
-        plt.imshow(LR_left.astype('uint8'))
+        plt.imshow(sr_right.astype('uint8'))
         plt.show()
         test_tq.update(1)
 
