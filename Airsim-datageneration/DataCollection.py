@@ -23,32 +23,21 @@ def NormalizeandRemoveInf(d):
     d = np.clip(d, 0.0, 1.0)
     return d
 
-environment = 'AirsimNH'
-root_dir = os.path.join('/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR' , environment)
+def downsample(img):
+    img_d = cv2.resize(img.astype('uint8'), (int(0.5 * img.shape[1]), int(0.5 * img.shape[0])), interpolation=cv2.INTER_CUBIC)
+    img_d = img_d.astype('float32')
+    img_d[:, :, 3] = cv2.resize(img[:, :, 3], (int(0.5 * img.shape[1]), int(0.5 * img.shape[0])))
+    return img_d
+
+environment = 'TrapCam'
+root_dir = os.path.join('/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR/data/testx2/AirSim' , environment)
 if os.path.isdir(root_dir):
-    start_idx = len(os.listdir(root_dir))
-else:
-    start_idx = 0
+    print('root dir exists, exitting ...')
+    os._exit(1)
+    # start_idx = len(os.listdir(root_dir))
 
-for idx in range(start_idx, start_idx + 10):
-    # get state of the car
-    # car_state = client.getCarState()
-    # print("Speed %d, Gear %d" % (car_state.speed, car_state.gear))
-
-    # # go forward
-    # car_controls.throttle = 0.5
-    # car_controls.steering = 0
-    # client.setCarControls(car_controls)
-    # print("Go Forward")
-    # time.sleep(3)   # let car drive a bit
-
-    # # apply brakes
-    # car_controls.brake = 1
-    # client.setCarControls(car_controls)
-    # print("Apply brakes")
-    # time.sleep(3)   # let car drive a bit
-    # car_controls.brake = 0 #remove brake
-    time.sleep(5)
+for idx in range(100):
+    time.sleep(1)
 
     requests = []
 
@@ -76,10 +65,14 @@ for idx in range(start_idx, start_idx + 10):
         LandR_list.append(np.concatenate(response_list, axis=-1))
     img_path = os.path.join(root_dir, 'img_'+ str(idx))
     os.makedirs(img_path, exist_ok=True)
-    filename = os.path.join(img_path, 'im0.npy')
+    filename = os.path.join(img_path, 'hr0.npy')
     np.save(filename, LandR_list[0])
-    filename = os.path.join(img_path, 'im1.npy')
+    filename = os.path.join(img_path, 'hr1.npy')
     np.save(filename, LandR_list[1])
+    filename = os.path.join(img_path, 'lr0.npy')
+    np.save(filename, downsample(LandR_list[0]))
+    filename = os.path.join(img_path, 'lr1.npy')
+    np.save(filename, downsample(LandR_list[1]))
     print('image', idx, 'from environemnt ', environment)
 
 #restore to original state

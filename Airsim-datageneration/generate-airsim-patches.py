@@ -3,9 +3,10 @@ from turtle import down
 import numpy as np
 import cv2
 
-# root_dir ='/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR'
-root_dir = '/media/oem/Local Disk/Phd-datasets/iPASSR/data/testx2/AirSim'
-dest_dir = '/media/oem/Local Disk/Phd-datasets/iPASSR/data/train/AirSim'
+root_dir ='/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR/data/testx2/AirSim'
+dest_dir ='/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR/data/train/AirSim'
+#root_dir = '/media/oem/Local Disk/Phd-datasets/iPASSR/data/testx2/AirSim'
+#dest_dir = '/media/oem/Local Disk/Phd-datasets/iPASSR/data/train/AirSim'
 
 def modcrop(img, scale):
     h , w = img.shape[0], img.shape[1]
@@ -21,28 +22,31 @@ def downsample(img):
 # Create dataset folder
 scale = 2
 idx_patch = 1
+h_patch, w_patch = 30 , 90
+stride = 40
 # Get list of scenes in Milddlebury's stereo training dataset and iterate through them
 for env_folder in os.listdir(root_dir):
     env_path = os.path.join(root_dir, env_folder)
-    for image_folder in os.listdir(env_path):
+    img_folders = sorted(os.listdir(env_path))
+    for image_folder in img_folders[:-len(img_folders)//10]:
+        
         image_path = os.path.join(env_path, image_folder)
-        left_image = np.load(image_path + '/hr0.npy')
-        right_image = np.load(image_path + '/hr1.npy')
+        img_hr_0 = np.load(image_path + '/hr0.npy')
+        img_hr_1 = np.load(image_path + '/hr1.npy')
         # # Scene data class contains the following data:
-        img_hr_0 = modcrop(left_image, scale)
-        img_hr_1 = modcrop(right_image, scale)
-        img_lr_0 = downsample(img_hr_0)
-        img_lr_1 = downsample(img_hr_1)
-        np.save(image_path + '/lr0.npy', img_lr_0)
-        np.save(image_path + '/lr1.npy', img_lr_1)
-        for x_lr in range(2, img_lr_0.shape[0] - 32, 20):
-            for y_lr in range(2, img_lr_0.shape[1] - 92, 20):
+        # img_hr_0 = modcrop(left_image, scale)
+        # img_hr_1 = modcrop(right_image, scale)
+        img_lr_0 = np.load(image_path + '/lr0.npy') 
+        img_lr_1 = np.load(image_path + '/lr1.npy')
+
+        for x_lr in range(2, img_lr_0.shape[0] - (h_patch + 2), stride):
+            for y_lr in range(2, img_lr_0.shape[1] - (w_patch + 2), stride):
                 x_hr = x_lr * scale
                 y_hr = y_lr * scale
-                hr_patch_0 = img_hr_0[x_hr: (x_lr + 30)*scale, y_hr: (y_lr + 90)*scale]
-                hr_patch_1 = img_hr_1[x_hr: (x_lr + 30)*scale, y_hr: (y_lr + 90)*scale]
-                lr_patch_0 = img_lr_0[x_lr: x_lr + 30, y_lr: y_lr + 90]
-                lr_patch_1 = img_lr_1[x_lr: x_lr + 30, y_lr: y_lr + 90]
+                hr_patch_0 = img_hr_0[x_hr: (x_lr + h_patch)*scale, y_hr: (y_lr + w_patch)*scale]
+                hr_patch_1 = img_hr_1[x_hr: (x_lr + h_patch)*scale, y_hr: (y_lr + w_patch)*scale]
+                lr_patch_0 = img_lr_0[x_lr: x_lr + h_patch, y_lr: y_lr + w_patch]
+                lr_patch_1 = img_lr_1[x_lr: x_lr + h_patch, y_lr: y_lr + w_patch]
                 dst_img_folder = os.path.join(dest_dir, 'patches_x{:d}/{:06d}'.format(scale, idx_patch)) 
                 os.makedirs(dst_img_folder, exist_ok=True)
                 np.save(dst_img_folder + '/hr0.npy', hr_patch_0)
