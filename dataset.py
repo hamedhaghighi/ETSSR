@@ -11,7 +11,7 @@ class DataSetLoader(Dataset):
         super(DataSetLoader, self).__init__()
         self.cfg = cfg
         self.dataset_dir = cfg.data_dir
-        self.file_list = os.listdir(self.dataset_dir)
+        self.file_list = sorted(os.listdir(self.dataset_dir))
         self.to_tensor = to_tensor
 
     def read_img(self, img_path):
