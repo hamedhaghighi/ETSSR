@@ -55,7 +55,7 @@ def test(cfg):
     for env in os.listdir(root_dir):
         cfg.data_dir = os.path.join(root_dir, env)
         total_dataset = dataset.DataSetLoader(cfg, to_tensor=False)
-        test_set = Subset(total_dataset, range(len(total_dataset))[:-len(total_dataset)//10:])
+        test_set = Subset(total_dataset, range(len(total_dataset))[-len(total_dataset)//10:])
         test_tq = tqdm.tqdm(total=len(test_set), desc='Iter', position=3)
         psnr_right_list=[]
         psnr_left_list=[]
