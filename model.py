@@ -31,6 +31,7 @@ class Net(nn.Module):
     def calc_loss(self, LR_left, LR_right, HR_left, HR_right, cfg):
         self.loss_names = ['SR', 'photo', 'smooth', 'cycle', 'cons' , 'total']
         scale = cfg.scale_factor
+        alpha = cfg.alpha
         b, c, h, w = LR_left[:, :3].shape
         criterion_L1 = torch.nn.L1Loss().to(cfg.device)
         SR_left, SR_right, (M_right_to_left, M_left_to_right), (V_left, V_right)= self.forward(LR_left, LR_right, is_training=1)
@@ -63,7 +64,7 @@ class Net(nn.Module):
         SR_right_resT = torch.bmm(M_left_to_right.detach().contiguous().view(b * h, w, w), SR_left_res.permute(0, 2, 3, 1).contiguous().view(b * h, w, c)).view(b, h, w, c).contiguous().permute(0, 3, 1, 2)
         self.loss_cons = criterion_L1(SR_left_res * V_left.repeat(1, 3, 1, 1), SR_left_resT * V_left.repeat(1, 3, 1, 1)) + criterion_L1(SR_right_res * V_right.repeat(1, 3, 1, 1), SR_right_resT * V_right.repeat(1, 3, 1, 1))
         ''' Total Loss '''
-        self.loss_total = self.loss_SR + 0.1 * self.loss_cons + 0.1 * (self.loss_photo + self.loss_smooth + self.loss_cycle)
+        self.loss_total = self.loss_SR + alpha * (self.loss_cons + self.loss_photo + self.loss_smooth + self.loss_cycle)
         return self.loss_total
 
     def forward(self, x_left, x_right, is_training):
