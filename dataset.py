@@ -19,8 +19,9 @@ class DataSetLoader(Dataset):
         if ext == 'npy':
             return np.load(img_path)[..., :self.cfg.input_channel]
         elif ext == 'png':
+            assert self.cfg.input_channel == 3
             img = Image.open(img_path)
-            return np.array(img,  dtype=np.float32)[..., :self.cfg.input_channel]
+            return np.array(img,  dtype=np.float32)
         
 
     def __getitem__(self, index):
@@ -29,6 +30,9 @@ class DataSetLoader(Dataset):
         img_hr_right = self.read_img(self.dataset_dir + '/' + self.file_list[index] + '/hr1' + ext)[..., :3]
         img_lr_left = self.read_img(self.dataset_dir + '/' + self.file_list[index] + '/lr0' + ext)
         img_lr_right = self.read_img(self.dataset_dir + '/' + self.file_list[index] + '/lr1' + ext)
+        # TODO: change this in the dataset
+        img_lr_left[..., 3] = img_lr_left[..., 3] / 2.0
+        img_lr_right[..., 3] = img_lr_right[..., 3] / 2.0
         if self.to_tensor:
             img_hr_left, img_hr_right, img_lr_left, img_lr_right = augmentation(img_hr_left, img_hr_right, img_lr_left, img_lr_right)
             return toTensor(img_hr_left), toTensor(img_hr_right), toTensor(img_lr_left), toTensor(img_lr_right)
