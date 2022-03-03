@@ -41,13 +41,14 @@ class cfg_parser():
             setattr(self, k, v)
         if args.data_dir != '':
             self.data_dir = args.data_dir
+        if args.checkpoints_dir != '':
+            self.checkpoints_dir = args.checkpoints_dir
         self.fast_test = args.fast_test
         self.cfg_path = args.cfg
 
 def test(cfg):
     net = Net(cfg.scale_factor, cfg.input_channel).to(cfg.device)
-    model_path = os.path.join(
-    cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '.pth')
+    model_path = os.path.join(cfg.checkpoints_dir, 'modelx' + str(cfg.scale_factor) + '.pth')
     model = torch.load(model_path, map_location={'cuda:0': cfg.device})
     net.load_state_dict(model['state_dict'])
     image_folders = os.listdir()
@@ -117,8 +118,8 @@ def test(cfg):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, help='Path of the config file')
-    parser.add_argument('--data_dir', type=str, default='',
-                        help='Path of the dataset')
+    parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset')
+    parser.add_argument('--checkpoints_dir', type=str, default='', help='Path of the dataset')
     parser.add_argument('--fast_test', default=False, action='store_true')
 
     args = parser.parse_args()
