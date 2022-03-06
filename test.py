@@ -6,7 +6,7 @@ from PIL import Image
 # from torchvision.transforms import ToTensor
 import argparse
 import os
-from model import *
+from models.model import *
 from dataset import toNdarray, toTensor
 from skimage.measure import compare_psnr, compare_ssim
 import matplotlib.pyplot as plt

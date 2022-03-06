@@ -1,3 +1,4 @@
+from tkinter import N
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,19 +10,16 @@ from torchvision import transforms
 class Net(nn.Module):
     def __init__(self, upscale_factor, input_channel = 3):
         super(Net, self).__init__()
+        self.input_channel = input_channel
         self.upscale_factor = upscale_factor
         self.init_feature = nn.Conv2d(input_channel, 64, 3, 1, 1, bias=True)
         self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=4)
         self.pam = PAM(64)
-        self.fusion = nn.Sequential(
-            RDB(G0=128, C=4, G=32),
-            CALayer(128),
-            nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
+        self.f_RDB = RDB(G0=128, C=4, G=32)
+        self.CAlayer = CALayer(128)
+        self.fusion = nn.Sequential(self.f_RDB, self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
         self.reconstruct = RDG(G0=64, C=4, G=24, n_RDB=4)
-        self.upscale = nn.Sequential(
-            nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True),
-            nn.PixelShuffle(upscale_factor),
-            nn.Conv2d(64, 3, 3, 1, 1, bias=True))
+        self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
 
 
     def forward(self, x_left, x_right, is_training):
@@ -112,38 +110,65 @@ class Net(nn.Module):
             (self.loss_cons + self.loss_photo + self.loss_smooth + self.loss_cycle)
         return self.loss_total
 
+    def flop(self, H, W):
+        N = H * W
+        flop = 0
+        flop += 2 * ((self.input_channel * 9 + 1) * N * 64) # adding 1 for bias
+        flop += 2 * self.deep_feature.flop(N)
+        flop += self.pam.flop(H, W)
+        flop += 2 * (self.f_RDB.flop(N) + self.CAlayer.flop(N) + N * (128 + 1) * 64)
+        flop += 2 * self.reconstruct.flop(N)
+        flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2) + (N**self.upscale_factor) * 3 * (64 * 9 + 1))
+        return flop
+
+
+
 class one_conv(nn.Module):
     def __init__(self, G0, G):
         super(one_conv, self).__init__()
+        self.G0, self.G = G0, G
         self.conv = nn.Conv2d(G0, G, kernel_size=3, stride=1, padding=1, bias=True)
         self.relu = nn.LeakyReLU(0.1, inplace=True)
     def forward(self, x):
         output = self.relu(self.conv(x))
         return torch.cat((x, output), dim=1)
 
+    def flop(self, N):
+        flop = N * (self.G0 * 9 + 1) * self.G
+        return flop
+
 
 class RDB(nn.Module):
     def __init__(self, G0, C, G):
         super(RDB, self).__init__()
-        convs = []
+        self.G0, self.G, self.C = G0, G , C
+        self.convs = []
         for i in range(C):
-            convs.append(one_conv(G0+i*G, G))
-        self.conv = nn.Sequential(*convs)
+            self.convs.append(one_conv(G0+i*G, G))
+        self.conv = nn.Sequential(*self.convs)
         self.LFF = nn.Conv2d(G0 + C*G, G0, kernel_size=1, stride=1, padding=0, bias=True)
     def forward(self, x):
         out = self.conv(x)
         lff = self.LFF(out)
         return lff + x
 
+    def flop(self, N):
+        flop = 0
+        for cv in self.convs:
+            flop += cv.flop(N)
+        flop += N * (self.G0 + self.C*self.G + 1) * self.G0
+        return flop
+
 
 class RDG(nn.Module):
     def __init__(self, G0, C, G, n_RDB):
         super(RDG, self).__init__()
         self.n_RDB = n_RDB
-        RDBs = []
+        self.G0 = G0
+        self.RDBs = []
         for i in range(n_RDB):
-            RDBs.append(RDB(G0, C, G))
-        self.RDB = nn.Sequential(*RDBs)
+            self.RDBs.append(RDB(G0, C, G))
+        self.RDB = nn.Sequential(*self.RDBs)
         self.conv = nn.Conv2d(G0*n_RDB, G0, kernel_size=1, stride=1, padding=0, bias=True)
 
     def forward(self, x):
@@ -156,11 +181,18 @@ class RDG(nn.Module):
         out = self.conv(buffer_cat)
         return out, buffer_cat
 
+    def flop(self, N):
+        flop = 0
+        flop += len(self.RDBs) * self.RDBs[0].flop(N)
+        flop += N * (self.n_RDB * self.G0 + 1) * self.G0
+        return flop
+
 
 class CALayer(nn.Module):
     def __init__(self, channel):
         super(CALayer, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.channel = channel
         self.conv_du = nn.Sequential(
                 nn.Conv2d(channel, channel//16, 1, padding=0, bias=True),
                 nn.LeakyReLU(0.1, inplace=True),
@@ -171,10 +203,18 @@ class CALayer(nn.Module):
         y = self.avg_pool(x)
         y = self.conv_du(y)
         return x * y
-
+    
+    def flop(self, N):
+        flop = 0
+        flop += N * self.channel
+        flop += (self.channel + 1) * self.channel//16
+        flop += (self.channel//16 + 1) * self.channel
+        flop += N * self.channel
+        return flop
 
 class ResB(nn.Module):
     def __init__(self, channels):
+        self.channel = channels
         super(ResB, self).__init__()
         self.body = nn.Sequential(
             nn.Conv2d(channels, channels, 3, 1, 1, groups=4, bias=True),
@@ -185,10 +225,14 @@ class ResB(nn.Module):
         out = self.body(x)
         return out + x
 
+    def flop(self, N):
+        flop = 2 * N * self.channel * (self.channel * 9 + 1)
+        return flop
 
 class PAM(nn.Module):
     def __init__(self, channels):
         super(PAM, self).__init__()
+        self.channel = channels
         self.bq = nn.Conv2d(4*channels, channels, 1, 1, 0, groups=4, bias=True)
         self.bs = nn.Conv2d(4*channels, channels, 1, 1, 0, groups=4, bias=True)
         self.softmax = nn.Softmax(-1)
@@ -234,6 +278,16 @@ class PAM(nn.Module):
         if is_training == 0:
             return out_left, out_right
 
+    def flop(self, H, W):
+        N = H * W
+        flop = 0
+        flop += 2 * N * 4 * self.channel
+        flop += 2 * self.rb.flop(N)
+        flop += 2 * N * self.channel * (4 * self.channel + 1)
+        flop += H * (W**2) * self.channel
+        # flop += 2 * H * W
+        flop += 2 * H * (W**2) * self.channel
+        return flop
 
 def M_Relax(M, num_pixels):
     _, u, v = M.shape
@@ -252,6 +306,9 @@ def M_Relax(M, num_pixels):
 
 
 if __name__ == "__main__":
-    net = Net(upscale_factor=4)
+    net = Net(upscale_factor=2)
     total = sum([param.nelement() for param in net.parameters()])
     print('   Number of params: %.2fM' % (total / 1e6))
+    print('   FLOPS: %.2fG' % (net.flop(30 , 90) / 1e9))
+    x = torch.randn((1, 3, 30, 90))
+    y = net(x, x , 0)

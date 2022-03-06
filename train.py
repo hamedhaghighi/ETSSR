@@ -4,10 +4,13 @@ from torch.utils.data import Subset
 import torch.backends.cudnn as cudnn
 import argparse
 from utils import *
-from model import *
+import models.ipassr as ipassr
+import models.model as mine
 import dataset
 from visualizer import Logger
 from collections import defaultdict
+import torch
+import numpy as np
 import tqdm
 import yaml
 import os
@@ -72,10 +75,9 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
 
 def train(train_loader, val_loader, cfg):
     IC = cfg.input_channel
-    net = Net(cfg.scale_factor, IC).to(cfg.device)
+    net = mine.Net(cfg.scale_factor, IC).to(cfg.device) if cfg.model == 'mine' else ipassr.Net(cfg.scale_factor, IC).to(cfg.device)
     cudnn.benchmark = True
     scale = cfg.scale_factor
-
     if cfg.load:
         model_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '.pth')
         if os.path.isfile(model_path):
