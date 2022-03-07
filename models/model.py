@@ -191,62 +191,57 @@ class PAM(nn.Module):
         self.window_centre_table = None
 
 
-    def calculate_window_center_table(self, h, w):
+    
+    def patchify(self, tensor, b, c, h, w):
         w_size = self.w_size
-        table_h = torch.zeros(h + w_size, w + w_size, self.w_size, self.w_size).long()
-        table_w = torch.zeros(h + w_size, w + w_size, self.w_size, self.w_size).long()
-        coords_h, coords_w = torch.meshgrid([torch.arange(h + w_size//2), torch.arange(w + w_size//2)], indexing='ij')
-        coords_h, coords_w = coords_h, coords_w
-        for i in range(w_size//2, h):
-            for j in range(w_size//2, w):
-                table_h[i , j] = coords_h[i - w_size//2: i + w_size//2, j - w_size//2: j + w_size//2]
-                table_w[i , j] = coords_w[i - w_size//2: i + w_size//2, j - w_size//2: j + w_size//2]
-        self.window_centre_table = (table_h, table_w)
+        return tensor.reshape(b, c, h // w_size, w_size, w // w_size, w_size).permute(0, 2, 4, 3, 5, 1) # B C H//w_size W//wsize wsize wsize
 
-    def select_patch(self, tensor, coords_h, coords_w, b_size):
+    def unpatchify(self, tensor, b, c, h, w):
         w_size = self.w_size
-        tensor_padded = F.pad(tensor, (w_size//2, w_size//2, w_size//2, w_size//2))
-        tensor_selected = torch.cat([tensor_padded[i: i+1, :,  coords_h[i], coords_w[i]] for i in range(b_size)])  # B , C, H , W , wsize, wsize
-        return tensor_selected
+        return tensor.reshape(b, h // w_size, w // w_size, w_size, w_size, c).permute(0, 5, 1, 3, 2, 4).reshape(b, c, h, w)
 
     def __call__(self, x_left, x_right, catfea_left, catfea_right, d_left, d_right):
         # Building matching indexes and patch around that using disparity
         w_size = self.w_size
         b, c, h, w = x_left.shape
-        coords_h, coords_w = torch.meshgrid([torch.arange(h), torch.arange(w)], indexing='ij') # H, W
-        coords_h, coords_w = coords_h.repeat(b ,1, 1) + w_size//2 , coords_w.repeat(b, 1, 1) # B , H , W
-        V_left = ((coords_w.to(self.device) - d_left.long() ) >= 0).unsqueeze(1).int() # B , H , W
-        V_Right = ((coords_w.to(self.device) + d_right.long()) <= w - 1).unsqueeze(1).int() # B , H , W
-        r2l_w = (torch.clamp(coords_w - d_left.long().cpu(), min=0) + w_size//2)
-        l2r_w = (torch.clamp(coords_w + d_right.long().cpu(), max=w - 1) + w_size//2)
-        if self.window_centre_table is None:
-            self.calculate_window_center_table(h, w)
-        table_h, table_w = self.window_centre_table 
-        Wr2l_h, Wr2l_w = table_h[coords_h, r2l_w], table_w[coords_h, r2l_w] # B , H , W ,wsize, wsize
-        Wl2r_h, Wl2r_w = table_h[coords_h, l2r_w], table_w[coords_h, l2r_w]
+        coords_b, coords_h, coords_w = torch.meshgrid([torch.arange(b), torch.arange(h), torch.arange(w)], indexing='ij') # H, W
+        # V_left = ((coords_w.to(self.device) - d_left.long() ) >= 0).unsqueeze(1).int() # B , H , W
+        # V_Right = ((coords_w.to(self.device) + d_right.long()) <= w - 1).unsqueeze(1).int() # B , H , W
+        r2l_w = (torch.clamp(coords_w - d_left.long().cpu(), min=0) )
+        l2r_w = (torch.clamp(coords_w + d_right.long().cpu(), max=w - 1))
 
         Q = self.bq(self.rb(self.bn(catfea_left))) # B C H W
         # Q = Q - torch.mean(Q, 3).unsqueeze(3).repeat(1, 1, 1, w)
         K = self.bs(self.rb(self.bn(catfea_right)))  # B C H W
         # K = K - torch.mean(K, 3).unsqueeze(3).repeat(1, 1, 1, w)
-        Q_selected = self.select_patch(Q, Wl2r_h, Wl2r_w, b) # B, C, H, W, wsize, wsize
-        K_selected = self.select_patch(K, Wr2l_h, Wr2l_w, b) # B, C, H , W ,wsize, wsize
+        # B , C , W// , H//, w_size w_size
+        Q_selected = self.patchify(Q[coords_b, :, coords_h, l2r_w], b, c, h, w)
+        K_selected = self.patchify(K[coords_b, :, coords_h, r2l_w], b, c, h, w)  # B , C , W// , H// w_size w_size
         Q_selected = Q_selected - Q_selected.mean((4, 5))[..., None, None]
         K_selected = K_selected - K_selected.mean((4, 5))[..., None, None]
-        score_r2l = Q.permute(0, 2, 3, 1).reshape(-1, 1, c) @ K_selected.permute(0, 2, 3, 1, 4, 5).reshape(-1, c, w_size * w_size)
-        score_l2r = K.permute(0, 2, 3, 1).reshape(-1, 1, c) @ Q_selected.permute(0, 2, 3, 1, 4, 5).reshape(-1, c, w_size * w_size)
+        score_r2l = self.patchify(Q, b, c, h, w).reshape(-1, w_size * w_size, c) @ K_selected.permute(0, 1, 2, 5, 3, 4).reshape(-1, c, w_size * w_size)
+        score_l2r = self.patchify(K, b, c, h, w).reshape(-1, w_size * w_size, c) @ Q_selected.permute(0, 1, 2, 5, 3, 4).reshape(-1, c, w_size * w_size)
         # (B*H) * Wl * Wr
-        Mr2l = self.softmax(score_r2l)  # B*C*H*W, 1 , wsize * wsize
-        Ml2r = self.softmax(score_l2r)                     
+        Mr2l = self.softmax(score_r2l)  # B*C*H//*W//, wsize * wsize, wsize * wsize
+        Ml2r = self.softmax(score_l2r)  
+        ## masks
+        Mr2l_relaxed = M_Relax(Mr2l, num_pixels=2)
+        Ml2r_relaxed = M_Relax(Ml2r, num_pixels=2)
+        V_left = Mr2l_relaxed.reshape(-1, 1, w_size*w_size) @ Ml2r_relaxed.permute(0, 2, 1).reshape(-1, w_size*w_size, 1)
+        V_left = self.unpatchify(V_left.squeeze().reshape(-1, w_size, w_size, 1) , b, 1, h, w).detach()
+        V_right = Ml2r_relaxed.reshape(-1, 1, w_size*w_size) @ Mr2l_relaxed.permute(0, 2, 1).reshape(-1, w_size*w_size, 1)
+        V_right = self.unpatchify(V_right.squeeze().reshape(-1, w_size, w_size, 1) , b, 1, h, w).detach()
+        V_left = torch.tanh(5 * V_left)
+        V_right = torch.tanh(5 * V_right)
 
-        x_right_selected = self.select_patch(x_right, Wr2l_h, Wr2l_w, b) # B, C, H, W, wsize, wsize
-        x_left_selected = self.select_patch(x_left, Wr2l_h, Wr2l_w, b) # B, C, H, W, wsize, wsize
-        x_leftT = Mr2l @ x_right_selected.permute(0, 2, 3, 4, 5, 1).reshape(-1, w_size * w_size, c)
-        x_rightT = Ml2r @ x_left_selected.permute(0, 2, 3, 4, 5, 1).reshape(-1, w_size * w_size, c)
-        x_leftT = x_leftT.reshape(b, h, w, c).permute(0, 3, 1, 2) # B, C, H , W
-        x_rightT = x_rightT.reshape(b, h, w, c).permute(0, 3, 1, 2) # B, C, H , W
-        out_left = x_left + x_leftT * V_left.repeat(1, c, 1, 1)
-        out_right = x_right +  x_rightT * V_Right.repeat(1, c, 1, 1)
+        x_right_selected = self.patchify(x_right[coords_b, :, coords_h, r2l_w], b, c, h, w) # B, C, H//, W//, wsize, wsize
+        x_left_selected = self.patchify(x_left[coords_b, :, coords_h, l2r_w], b, c, h, w) # B, C, H, W, wsize, wsize
+        x_leftT = Mr2l @ x_right_selected.reshape(-1, w_size * w_size, c)
+        x_rightT = Ml2r @ x_left_selected.reshape(-1, w_size * w_size, c)
+        x_leftT = self.unpatchify(x_leftT, b, c, h, w)  # B, C, H , W
+        x_rightT = self.unpatchify(x_rightT, b, c, h, w)  # B, C, H , W
+        out_left = x_left * (1 - V_left) + x_leftT * V_left
+        out_right = x_right * (1 - V_right) +  x_rightT * V_right
         return out_left, out_right
 
     def flop(self, H, W):
