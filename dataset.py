@@ -34,7 +34,7 @@ class DataSetLoader(Dataset):
         img_lr_left[..., 3] = img_lr_left[..., 3] / 2.0
         img_lr_right[..., 3] = img_lr_right[..., 3] / 2.0
         if self.to_tensor:
-            img_hr_left, img_hr_right, img_lr_left, img_lr_right = augmentation(img_hr_left, img_hr_right, img_lr_left, img_lr_right)
+            # img_hr_left, img_hr_right, img_lr_left, img_lr_right = augmentation(img_hr_left, img_hr_right, img_lr_left, img_lr_right)
             return toTensor(img_hr_left), toTensor(img_hr_right), toTensor(img_lr_left), toTensor(img_lr_right)
         return img_hr_left, img_hr_right, img_lr_left, img_lr_right
 
@@ -65,10 +65,17 @@ def augmentation(hr_image_left, hr_image_right, lr_image_left, lr_image_right):
 def toTensor(img):
     if len(img.shape) == 4:
         img = torch.from_numpy(np.transpose(img, (0, 3, 1, 2)))
+        if img.shape[1] > 3:
+            img = torch.stack([img[:, i]/ (255.0 if i != 3 else 1.0) for i in range(img.shape[1])], dim=1)
+        else:
+            img = img.float() / 255.0
     else:
         img = torch.from_numpy(np.transpose(img, (2, 0, 1)))
-    return img.float().div(255)
-
+        if img.shape[0] > 3:
+            img = torch.stack([img[i]/ (255.0 if i != 3 else 1.0) for i in range(img.shape[0])], dim=0)
+        else:
+            img = img.float() / 255.0
+    return img
 
 def toNdarray(tensor):
     assert len(tensor.shape) == 4
