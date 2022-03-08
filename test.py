@@ -2,6 +2,8 @@ from unittest.mock import patch
 from matplotlib.pyplot import axis
 from torch.autograd import Variable
 from torch.utils.data import Subset
+import models.ipassr as ipassr
+import models.model as mine
 from PIL import Image
 # from torchvision.transforms import ToTensor
 import argparse
@@ -48,6 +50,8 @@ class cfg_parser():
 
 def test(cfg):
     net = Net(cfg.scale_factor, cfg.input_channel).to(cfg.device)
+    net = mine.Net(cfg.scale_factor, cfg.input_channel, cfg.w_size, cfg.device).to(cfg.device) if cfg.model == 'mine' \
+        else ipassr.Net(cfg.scale_factor, cfg.input_channel).to(cfg.device)
     model_path = os.path.join(cfg.checkpoints_dir, 'modelx' + str(cfg.scale_factor) + '.pth')
     model = torch.load(model_path, map_location={'cuda:0': cfg.device})
     net.load_state_dict(model['state_dict'])
