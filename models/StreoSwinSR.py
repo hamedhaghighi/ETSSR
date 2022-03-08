@@ -26,7 +26,7 @@ class Net(nn.Module):
         b, c, h, w = x_left.shape
         if c > 3:
             d_left = x_left[:, 3]
-            d_right = x_right[:, 3]
+            d_right = x_left[:, 3]
 
         x_left_upscale = F.interpolate(x_left[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
         x_right_upscale = F.interpolate(x_right[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
@@ -216,7 +216,7 @@ class PAM(nn.Module):
         # K = K - torch.mean(K, 3).unsqueeze(3).repeat(1, 1, 1, w)
         # B , C , W// , H//, w_size w_size
         Q_selected = self.patchify(Q[coords_b, :, coords_h, l2r_w], b, c, h, w)
-        K_selected = self.patchify(K[coords_b, :, coords_h, r2l_w], b, c, h, w)  # B , C , W//wsize , H//wsize, w_size, w_size
+        K_selected = self.patchify(K[coords_b, :, coords_h, r2l_w], b, c, h, w)  # B , C , W// , H// w_size w_size
         Q_selected = Q_selected - Q_selected.mean((4, 5))[..., None, None]
         K_selected = K_selected - K_selected.mean((4, 5))[..., None, None]
         score_r2l = self.patchify(Q, b, c, h, w).reshape(-1, w_size * w_size, c) @ K_selected.permute(0, 1, 2, 5, 3, 4).reshape(-1, c, w_size * w_size)
@@ -227,9 +227,9 @@ class PAM(nn.Module):
         ## masks
         Mr2l_relaxed = M_Relax(Mr2l, num_pixels=2)
         Ml2r_relaxed = M_Relax(Ml2r, num_pixels=2)
-        V_left = Mr2l_relaxed.reshape(-1, 1, w_size*w_size) @ Ml2r.permute(0, 2, 1).reshape(-1, w_size*w_size, 1)
+        V_left = Mr2l_relaxed.reshape(-1, 1, w_size*w_size) @ Ml2r_relaxed.permute(0, 2, 1).reshape(-1, w_size*w_size, 1)
         V_left = self.unpatchify(V_left.squeeze().reshape(-1, w_size, w_size, 1) , b, 1, h, w).detach()
-        V_right = Ml2r_relaxed.reshape(-1, 1, w_size*w_size) @ Mr2l.permute(0, 2, 1).reshape(-1, w_size*w_size, 1)
+        V_right = Ml2r_relaxed.reshape(-1, 1, w_size*w_size) @ Mr2l_relaxed.permute(0, 2, 1).reshape(-1, w_size*w_size, 1)
         V_right = self.unpatchify(V_right.squeeze().reshape(-1, w_size, w_size, 1) , b, 1, h, w).detach()
         V_left = torch.tanh(5 * V_left)
         V_right = torch.tanh(5 * V_right)
