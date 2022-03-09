@@ -35,7 +35,7 @@ class DataSetLoader(Dataset):
         img_lr_right[..., 3] = img_lr_right[..., 3] / 2.0
         if self.to_tensor:
             # TODO: data_augmetation is off
-            # img_hr_left, img_hr_right, img_lr_left, img_lr_right = augmentation(img_hr_left, img_hr_right, img_lr_left, img_lr_right)
+            img_hr_left, img_hr_right, img_lr_left, img_lr_right = augmentation(img_hr_left, img_hr_right, img_lr_left, img_lr_right)
             return toTensor(img_hr_left), toTensor(img_hr_right), toTensor(img_lr_left), toTensor(img_lr_right)
         return img_hr_left, img_hr_right, img_lr_left, img_lr_right
 
