@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from skimage import morphology
 from torchvision import transforms
-from SwinTransformer import SwinAttnBlock
+from models.SwinTransformer import SwinAttnBlock
 
 class Net(nn.Module):
     def __init__(self, upscale_factor, img_size, input_channel = 3, w_size = 8,device='cpu'):
