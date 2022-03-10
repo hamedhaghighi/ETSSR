@@ -6,7 +6,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from skimage import morphology
 from torchvision import transforms
-from models.SwinTransformer import SwinAttnBlock
+import torch.utils.checkpoint as checkpoint
+from models.SwinTransformer import SwinAttnBlock, CoSwinAttnBlock
 
 class Net(nn.Module):
     def __init__(self, upscale_factor, img_size, input_channel = 3, w_size = 8,device='cpu'):
@@ -16,13 +17,13 @@ class Net(nn.Module):
         self.init_feature = nn.Conv2d(input_channel, 64, 3, 1, 1, bias=True)
         self.deep_feature= SwinAttnBlock(img_size=img_size, window_size=w_size, depths=[
                           6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
-        self.pam = PAM(64 ,w_size, device)
+        self.co_feature = CoSwinAttnBlock(img_size=img_size, window_size=w_size, depths=[6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
         self.CAlayer = CALayer(128)
         self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
         self.reconstruct = SwinAttnBlock(img_size=img_size, window_size=w_size, depths=[
             6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
         self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
-
+        self.apply(self._init_weights)
 
     def forward(self, x_left, x_right, is_training = 0):
         b, c, h, w = x_left.shape
@@ -36,7 +37,7 @@ class Net(nn.Module):
         buffer_right = self.init_feature(x_right)
         buffer_left = self.deep_feature(buffer_left)
         buffer_right = self.deep_feature(buffer_right)
-        buffer_leftT, buffer_rightT = self.pam(buffer_left, buffer_right, d_left, d_right)
+        buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right, d_left, d_right)
 
         buffer_leftF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1))
         buffer_rightF = self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
@@ -45,6 +46,15 @@ class Net(nn.Module):
         out_left = self.upscale(buffer_leftF) + x_left_upscale
         out_right = self.upscale(buffer_rightF) + x_right_upscale
         return out_left, out_right
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
 
     def get_losses(self):
         loss_dict = {k: getattr(self, 'loss_' + k).data.cpu() for k in self.loss_names}
@@ -115,85 +125,159 @@ class ResB(nn.Module):
         flop = 2 * N * self.channel * (self.channel * 9 + 1)
         return flop
 
-class PAM(nn.Module):
-    def __init__(self, channels, w_size = 8, device='cpu'):
-        super(PAM, self).__init__()
-        self.device = device
-        self.w_size = w_size
-        self.channel = channels
-        self.qkv = nn.Conv2d(channels, 3 * channels, 1, 1, 0, groups=4, bias=True)
-        self.softmax = nn.Softmax(-1)
-        self.rb = ResB(channels)
-        self.bn = nn.BatchNorm2d(channels)
-        self.window_centre_table = None
 
+class CoRSTB(nn.Module):
+
+    def __init__(self, dim, input_resolution, depth, num_heads, window_size,
+                 mlp_ratio=4., qkv_bias=True, drop=0.,
+                 drop_path=0., norm_layer=nn.LayerNorm, downsample=None, use_checkpoint=False,
+                 img_size=224, patch_size=4, resi_connection='1conv'):
+        super(CoRSTB, self).__init__()
+
+        self.use_checkpoint = use_checkpoint
+        self.dim = dim
+        self.input_resolution = input_resolution
+        self.blocks = nn.ModuleList([
+            CoSwinAttnBlock(dim=dim, input_resolution=input_resolution,
+                          num_heads=num_heads, window_size=window_size,
+                          shift_size=0 if (
+                              i % 2 == 0) else window_size // 2,
+                          mlp_ratio=mlp_ratio,
+                          qkv_bias=qkv_bias,
+                          drop=drop,
+                          drop_path=drop_path[i] if isinstance(
+                              drop_path, list) else drop_path,
+                          norm_layer=norm_layer)
+            for i in range(depth)])
+
+        self.conv = nn.Conv2d(dim, dim, 3, 1, 1)
+
+    def forward(self, x_left, x_right, d_left, d_right, x_size):
+        out_left = x_left
+        out_right = x_right
+        for blk in self.blocks:
+            if self.use_checkpoint:
+                x_left, x_right = checkpoint.checkpoint(blk, x_left, x_right, d_left, d_right, x_size)
+            else:
+                x_left, x_right = blk(x_left, x_right, d_left, d_right, x_size)
+        x_left = x_left.transpose(1, 2).view(-1, self.dim, x_size[0], x_size[1])
+        x_right = x_right.transpose(1, 2).view(-1, self.dim, x_size[0], x_size[1])
+        x_left = self.conv(x_left)
+        x_right = self.conv(x_right)
+        x_left = x_left.flatten(2).transpose(1, 2)
+        x_right = x_right.flatten(2).transpose(1, 2)
+        return x_left + out_left, x_right + out_right
+
+    def flops(self):
+        flops = 0
+        flops += self.residual_group.flops()
+        H, W = self.input_resolution
+        flops += H * W * self.dim * self.dim * 9
+        flops += self.patch_embed.flops()
+        flops += self.patch_unembed.flops()
+
+        return flops
+
+
+class CoSwinAttn(nn.Module):
+    def __init__(self, img_size=64, patch_size=1, in_chans=3,
+                 embed_dim=96, depths=[6, 6, 6, 6], num_heads=[6, 6, 6, 6],
+                 window_size=7, mlp_ratio=4., qkv_bias=True, drop_path_rate=0.1,
+                 norm_layer=nn.LayerNorm, ape=False, patch_norm=True,
+                 use_checkpoint=False, resi_connection='1conv',
+                 **kwargs):
+        super(CoSwinAttn, self).__init__()
+        num_in_ch = in_chans
+        num_out_ch = in_chans
+        num_feat = 64
+        if in_chans == 3:
+            rgb_mean = (0.4488, 0.4371, 0.4040)
+            self.mean = torch.Tensor(rgb_mean).view(1, 3, 1, 1)
+        else:
+            self.mean = torch.zeros(1, 1, 1, 1)
+
+        self.window_size = window_size
+
+        self.num_layers = len(depths)
+        self.embed_dim = embed_dim
+        self.ape = ape
+        self.patch_norm = patch_norm
+        self.num_features = embed_dim
+        self.mlp_ratio = mlp_ratio
+
+        num_patches = img_size[0] * img_size[1]
+        patches_resolution = [img_size[0], img_size[1]]
+        self.patches_resolution = patches_resolution
+        self.pre_norm = norm_layer(embed_dim)
+
+        # stochastic depth
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate,
+                                                sum(depths))]  # stochastic depth decay rule
+
+        # build Residual Swin Transformer blocks (RSTB)
+        self.layers = nn.ModuleList()
+        for i_layer in range(self.num_layers):
+            layer = CoRSTB(dim=embed_dim,
+                         input_resolution=(patches_resolution[0],
+                                           patches_resolution[1]),
+                         depth=depths[i_layer],
+                         num_heads=num_heads[i_layer],
+                         window_size=window_size,
+                         mlp_ratio=self.mlp_ratio,
+                         qkv_bias=qkv_bias,
+                         drop_path=dpr[sum(depths[:i_layer]):sum(
+                             depths[:i_layer + 1])],  # no impact on SR results
+                         norm_layer=norm_layer,
+                         downsample=None,
+                         use_checkpoint=use_checkpoint,
+                         img_size=img_size,
+                         patch_size=patch_size,
+                         resi_connection=resi_connection
+
+                         )
+            self.layers.append(layer)
+        self.norm = norm_layer(self.num_features)
+
+        
 
     
-    def patchify(self, tensor, b, c, h, w):
-        w_size = self.w_size
-        return tensor.reshape(b, c, h // w_size, w_size, w // w_size, w_size).permute(0, 2, 4, 3, 5, 1) # B C H//w_size W//wsize wsize wsize
 
-    def unpatchify(self, tensor, b, c, h, w):
-        w_size = self.w_size
-        return tensor.reshape(b, h // w_size, w // w_size, w_size, w_size, c).permute(0, 5, 1, 3, 2, 4).reshape(b, c, h, w)
+    @torch.jit.ignore
+    def no_weight_decay(self):
+        return {'absolute_pos_embed'}
 
-    def __call__(self, x_left, x_right, d_left, d_right):
-        # Building matching indexes and patch around that using disparity
-        w_size = self.w_size
-        b, c, h, w = x_left.shape
-        coords_b, coords_h, coords_w = torch.meshgrid([torch.arange(b), torch.arange(h), torch.arange(w)], indexing='ij') # H, W
-        # m_left = ((coords_w.to(self.device) - d_left.long() ) >= 0).unsqueeze(1).int() # B , H , W
-        # V_Right = ((coords_w.to(self.device) + d_right.long()) <= w - 1).unsqueeze(1).int() # B , H , W
-        r2l_w = (torch.clamp(coords_w - d_left.long().cpu(), min=0) )
-        l2r_w = (torch.clamp(coords_w + d_right.long().cpu(), max=w - 1))
+    @torch.jit.ignore
+    def no_weight_decay_keywords(self):
+        return {'relative_position_bias_table'}
 
-        qkv_left = self.qkv(self.rb(self.bn(x_left))).reshape(b , 3, c, h, w).permute(1, 0 , 2, 3, 4)
-        qkv_right = self.qkv(self.rb(self.bn(x_right))).reshape(b , 3, c, h, w).permute(1, 0 , 2, 3, 4)
-        Q_left, K_left, V_left = qkv_left[0], qkv_left[1], qkv_left[2]
-        Q_right, K_right, V_right = qkv_right[0], qkv_right[1], qkv_right[2]
-        
-        # Q = Q - torch.mean(Q, 3).unsqueeze(3).repeat(1, 1, 1, w)
-        # K = K - torch.mean(K, 3).unsqueeze(3).repeat(1, 1, 1, w)
-        # B , C , W// , H//, w_size w_size
-        K_left_selected = self.patchify(K_left[coords_b, :, coords_h, l2r_w], b, c, h, w)
-        K_right_selected = self.patchify(K_right[coords_b, :, coords_h, r2l_w], b, c, h, w)  # B , C , W//wsize , H//wsize, w_size, w_size
-        K_left_selected = K_left_selected - K_left_selected.mean((4, 5))[..., None, None]
-        K_right_selected = K_right_selected - K_right_selected.mean((4, 5))[..., None, None]
-        score_r2l = self.patchify(Q_left, b, c, h, w).reshape(-1, w_size * w_size, c) @ K_right_selected.permute(0, 1, 2, 5, 3, 4).reshape(-1, c, w_size * w_size)
-        score_l2r = self.patchify(Q_right, b, c, h, w).reshape(-1, w_size * w_size, c) @ K_left_selected.permute(0, 1, 2, 5, 3, 4).reshape(-1, c, w_size * w_size)
-        # (B*H) * Wl * Wr
-        Mr2l = self.softmax(score_r2l)  # B*C*H//*W//, wsize * wsize, wsize * wsize
-        Ml2r = self.softmax(score_l2r)  
-        ## masks
-        Mr2l_relaxed = M_Relax(Mr2l, num_pixels=2)
-        Ml2r_relaxed = M_Relax(Ml2r, num_pixels=2)
-        m_left = Mr2l_relaxed.reshape(-1, 1, w_size*w_size) @ Ml2r.permute(0, 2, 1).reshape(-1, w_size*w_size, 1)
-        m_left = self.unpatchify(m_left.squeeze().reshape(-1, w_size, w_size, 1) , b, 1, h, w).detach()
-        m_right = Ml2r_relaxed.reshape(-1, 1, w_size*w_size) @ Mr2l.permute(0, 2, 1).reshape(-1, w_size*w_size, 1)
-        m_right = self.unpatchify(m_right.squeeze().reshape(-1, w_size, w_size, 1) , b, 1, h, w).detach()
-        m_left = torch.tanh(5 * m_left)
-        m_right = torch.tanh(5 * m_right)
+    def check_image_size(self, x):
+        _, _, h, w = x.size()
+        mod_pad_h = (self.window_size - h %
+                     self.window_size) % self.window_size
+        mod_pad_w = (self.window_size - w %
+                     self.window_size) % self.window_size
+        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
+        return x
 
-        V_right_selected = self.patchify(V_right[coords_b, :, coords_h, r2l_w], b, c, h, w) # B, C, H//, W//, wsize, wsize
-        V_left_selected = self.patchify(V_left[coords_b, :, coords_h, l2r_w], b, c, h, w) # B, C, H, W, wsize, wsize
-        x_leftT = Mr2l @ V_right_selected.reshape(-1, w_size * w_size, c)
-        x_rightT = Ml2r @ V_left_selected.reshape(-1, w_size * w_size, c)
-        x_leftT = self.unpatchify(x_leftT, b, c, h, w)  # B, C, H , W
-        x_rightT = self.unpatchify(x_rightT, b, c, h, w)  # B, C, H , W
-        out_left = x_left * (1 - m_left) + x_leftT * m_left
-        out_right = x_right * (1 - m_right) +  x_rightT * m_right
-        return out_left, out_right
+    def forward(self, x_left, x_right, d_left, d_right):
 
-    def flop(self, H, W):
-        N = H * W
-        flop = 0
-        flop += 2 * N * 4 * self.channel
-        flop += 2 * self.rb.flop(N)
-        flop += 2 * N * self.channel * (4 * self.channel + 1)
-        flop += H * (W**2) * self.channel
-        # flop += 2 * H * W
-        flop += 2 * H * (W**2) * self.channel
-        return flop
+        x_size = (x_left.shape[2], x_left.shape[3])
+        x_left = x_left.flatten(2).transpose(1, 2)
+        x_right = x_right.flatten(2).transpose(1, 2)
+        x_left = self.pre_norm(x_left)
+        x_right = self.pre_norm(x_right)
+        for layer in self.layers:
+            x_left, x_right = layer(x_left, x_right, d_left, d_right, x_size)
+
+        x_left = self.norm(x_left)  # B L C
+        x_right = self.norm(x_right)
+        B, HW, C = x_left.shape
+        x_left = x_left.transpose(1, 2).view(B, C, x_size[0], x_size[1])
+        x_right = x_right.transpose(1, 2).view(B, C, x_size[0], x_size[1])
+        return x_left, x_right
+
+
+
 
 def M_Relax(M, num_pixels):
     _, u, v = M.shape

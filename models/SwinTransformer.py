@@ -236,7 +236,7 @@ class SwinAttnBlock(nn.Module):
 
         return attn_mask
 
-    def forward(self, x, x_size, y=None):
+    def forward(self, x, x_size, y=None, d_left=None, d_right=None):
         H, W = x_size
         B, L, C = x.shape
         # assert L == H * W, "input feature has wrong size"
@@ -414,14 +414,9 @@ class SwinAttn(nn.Module):
             self.mean = torch.Tensor(rgb_mean).view(1, 3, 1, 1)
         else:
             self.mean = torch.zeros(1, 1, 1, 1)
+            
         self.window_size = window_size
 
-        #####################################################################################################
-        ################################### 1, shallow feature extraction ###################################
-        self.conv_first = nn.Conv2d(num_in_ch, embed_dim, 3, 1, 1)
-
-        #####################################################################################################
-        ################################### 2, deep feature extraction ######################################
         self.num_layers = len(depths)
         self.embed_dim = embed_dim
         self.ape = ape
@@ -502,6 +497,315 @@ class SwinAttn(nn.Module):
         B, HW, C = x.shape
         x = x.transpose(1, 2).view(B, C, x_size[0], x_size[1])
         return x
+
+
+
+
+
+class CoWindowAttention(nn.Module):
+    r""" Window based multi-head self attention (W-MSA) module with relative position bias.
+    It supports both of shifted and non-shifted window.
+
+    Args:
+        dim (int): Number of input channels.
+        window_size (tuple[int]): The height and width of the window.
+        num_heads (int): Number of attention heads.
+        qkv_bias (bool, optional):  If True, add a learnable bias to query, key, value. Default: True
+        qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set
+        attn_drop (float, optional): Dropout ratio of attention weight. Default: 0.0
+        proj_drop (float, optional): Dropout ratio of output. Default: 0.0
+    """
+
+    def __init__(self, dim, window_size, num_heads, qkv_bias=True, proj_drop=0.):
+
+        super().__init__()
+        self.dim = dim
+        self.window_size = window_size  # Wh, Ww
+        self.num_heads = num_heads
+        head_dim = dim // num_heads
+        self.scale = head_dim ** -0.5
+        # define a parameter table of relative position bias
+        self.relative_position_bias_table = nn.Parameter(
+            torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
+
+        # get pair-wise relative position index for each token inside the window
+        coords_h = torch.arange(self.window_size[0])
+        coords_w = torch.arange(self.window_size[1])
+        coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 2, Wh, Ww
+        coords_flatten = torch.flatten(coords, 1)  # 2, Wh*Ww
+        relative_coords = coords_flatten[:, :, None] - \
+            coords_flatten[:, None, :]  # 2, Wh*Ww, Wh*Ww
+        relative_coords = relative_coords.permute(
+            1, 2, 0).contiguous()  # Wh*Ww, Wh*Ww, 2
+        relative_coords[:, :, 0] += self.window_size[0] - \
+            1  # shift to start from 0
+        relative_coords[:, :, 1] += self.window_size[1] - 1
+        relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
+        relative_position_index = relative_coords.sum(-1)  # Wh*Ww, Wh*Ww
+        self.register_buffer("relative_position_index",
+                             relative_position_index)
+
+        self.q = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.kv = nn.Linear(dim, dim * 2, bias=qkv_bias)
+        self.proj = nn.Linear(dim, dim)
+
+        self.proj_drop = nn.Dropout(proj_drop)
+
+        trunc_normal_(self.relative_position_bias_table, std=.02)
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, x, x_selected, mask=None):
+        """
+        Args:
+            x: input features with shape of (num_windows*B, N, C)
+            mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
+
+        """
+        w_size = self.window_size[0]
+        b, n , c = x.shape
+        
+        q = self.q(x).reshape(b, n, 1, self.num_heads, c//self.num_heads).permute(2, 0, 3, 1, 4)
+        kv = self.kv(x_selected).reshape(b, n, 2, self.num_heads, c//self.num_heads).permute(2, 0, 3, 1, 4)
+        q, k, v = q[0], kv[0], kv[1] # b , nh, n, c//nh
+
+        # make torchscript happy (cannot use tensor as tuple)
+
+        q = q * self.scale
+        attn = (q @ k.transpose(-2, -1))
+
+        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
+            self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
+        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
+
+        attn = attn + relative_position_bias.unsqueeze(0)
+
+        if mask is not None:
+            nW = mask.shape[0]
+            attn = attn.view(b // nW, nW, self.num_heads, n, n) + mask.unsqueeze(1).unsqueeze(0)
+            attn = attn.view(-1, self.num_heads, n, n)
+            attn = self.softmax(attn)
+        else:
+            attn = self.softmax(attn)
+
+        xT = (attn @ v).transpose(1, 2).reshape(b, n, c)
+        xT = self.proj(xT)
+        xT = self.proj_drop(xT)
+        return xT, attn
+       
+
+    def extra_repr(self) -> str:
+        return f'dim={self.dim}, window_size={self.window_size}, num_heads={self.num_heads}'
+
+    def flops(self, N):
+        # calculate flops for 1 window with token length of N
+        flops = 0
+        # qkv = self.qkv(x)
+        flops += N * self.dim * 3 * self.dim
+        # attn = (q @ k.transpose(-2, -1))
+        flops += self.num_heads * N * (self.dim // self.num_heads) * N
+        #  x = (attn @ v)
+        flops += self.num_heads * N * N * (self.dim // self.num_heads)
+        # x = self.proj(x)
+        flops += N * self.dim * self.dim
+        return flops
+
+    def M_Relax(self, M, num_pixels):
+        M_list = []
+        M_list.append(M.unsqueeze(1))
+        for i in range(num_pixels):
+            pad = nn.ZeroPad2d(padding=(0, 0, i+1, 0))
+            pad_M = pad(M[:, :-1-i, :])
+            M_list.append(pad_M.unsqueeze(1))
+        for i in range(num_pixels):
+            pad = nn.ZeroPad2d(padding=(0, 0, 0, i+1))
+            pad_M = pad(M[:, i+1:, :])
+            M_list.append(pad_M.unsqueeze(1))
+        M_relaxed = torch.sum(torch.cat(M_list, 1), dim=1)
+        return M_relaxed
+
+class CoSwinAttnBlock(nn.Module):
+    r""" Swin Transformer Block.
+
+    Args:
+        dim (int): Number of input channels.
+        input_resolution (tuple[int]): Input resulotion.
+        num_heads (int): Number of attention heads.
+        window_size (int): Window size.
+        shift_size (int): Shift size for SW-MSA.
+        mlp_ratio (float): Ratio of mlp hidden dim to embedding dim.
+        qkv_bias (bool, optional): If True, add a learnable bias to query, key, value. Default: True
+        qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set.
+        drop (float, optional): Dropout rate. Default: 0.0
+        attn_drop (float, optional): Attention dropout rate. Default: 0.0
+        drop_path (float, optional): Stochastic depth rate. Default: 0.0
+        act_layer (nn.Module, optional): Activation layer. Default: nn.GELU
+        norm_layer (nn.Module, optional): Normalization layer.  Default: nn.LayerNorm
+    """
+
+    def __init__(self, dim, input_resolution, num_heads, window_size=7, shift_size=0,
+                 mlp_ratio=4., qkv_bias=True, drop=0., drop_path=0.,
+                 act_layer=nn.GELU, norm_layer=nn.LayerNorm):
+        super().__init__()
+        self.dim = dim
+        self.input_resolution = input_resolution
+        self.num_heads = num_heads
+        self.window_size = window_size
+        self.shift_size = shift_size
+        self.mlp_ratio = mlp_ratio
+        if min(self.input_resolution) <= self.window_size:
+            # if window size is larger than input resolution, we don't partition windows
+            self.shift_size = 0
+            self.window_size = min(self.input_resolution)
+        assert 0 <= self.shift_size < self.window_size, "shift_size must in 0-window_size"
+
+        self.norm1 = norm_layer(dim)
+        self.attn = CoWindowAttention(dim, window_size=to_2tuple(self.window_size), num_heads=num_heads, qkv_bias=qkv_bias, proj_drop=drop)
+
+        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.norm2 = norm_layer(dim)
+        mlp_hidden_dim = int(dim * mlp_ratio)
+        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim,act_layer=act_layer, drop=drop)
+
+        if self.shift_size > 0:
+            attn_mask = self.calculate_mask(self.input_resolution)
+        else:
+            attn_mask = None
+
+        self.register_buffer("attn_mask", attn_mask)
+
+    def calculate_mask(self, x_size):
+        # calculate attention mask for SW-MSA
+        H, W = x_size
+        img_mask = torch.zeros((1, H, W, 1))  # 1 H W 1
+        h_slices = (slice(0, -self.window_size),
+                    slice(-self.window_size, -self.shift_size),
+                    slice(-self.shift_size, None))
+        w_slices = (slice(0, -self.window_size),
+                    slice(-self.window_size, -self.shift_size),
+                    slice(-self.shift_size, None))
+        cnt = 0
+        for h in h_slices:
+            for w in w_slices:
+                img_mask[:, h, w, :] = cnt
+                cnt += 1
+
+        # nW, window_size, window_size, 1
+        mask_windows = window_partition(img_mask, self.window_size)
+        mask_windows = mask_windows.view(-1,
+                                         self.window_size * self.window_size)
+        attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
+        attn_mask = attn_mask.masked_fill(
+            attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
+
+        return attn_mask
+
+    def forward(self, x_left, x_right, d_left, d_right, x_size):
+        h, w = x_size
+        b, n, c = x_left.shape
+        # m_left = ((coords_w.to(self.device) - d_left.long() ) >= 0).unsqueeze(1).int() # B , H , W
+        # m_right = ((coords_w.to(self.device) + d_right.long()) <= w - 1).unsqueeze(1).int() # B , H , W
+        coords_b, coords_h, coords_w = torch.meshgrid([torch.arange(b), torch.arange(h), torch.arange(w)], indexing='ij')  # H, W
+        # m_left = ((coords_w.to(self.device) - d_left.long() ) >= 0).unsqueeze(1).int() # B , H , W
+        # V_Right = ((coords_w.to(self.device) + d_right.long()) <= w - 1).unsqueeze(1).int() # B , H , W
+        r2l_w = (torch.clamp(coords_w - d_left.long().cpu(), min=0))
+        l2r_w = (torch.clamp(coords_w + d_right.long().cpu(), max=w - 1))
+        # assert L == H * W, "input feature has wrong size"
+        shortcut_left = x_left
+        shortcut_right = x_right
+        x_left = self.norm1(x_left)
+        x_right = self.norm1(x_right)
+        x_left = x_left.view(b, h, w, c)
+        x_right = x_right.view(b, h, w, c)
+        x_left_selected = x_left[coords_b, coords_h, l2r_w].clone()
+        x_right_selected = x_right[coords_b, coords_h, r2l_w].clone()
+        # cyclic shift
+        if self.shift_size > 0:
+            shifted_x_left = torch.roll(x_left, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+            shifted_x_right = torch.roll(x_right, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+            shifted_x_left_selected = torch.roll(x_left_selected, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+            shifted_x_right_selected = torch.roll(x_right_selected, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+        else:
+            shifted_x_left = x_left
+            shifted_x_right = x_right
+            shifted_x_left_selected = x_left_selected
+            shifted_x_right_selected = x_right_selected
+
+        # partition windows
+        # nW*B, window_size, window_size, C
+        x_left_windows = window_partition(shifted_x_left, self.window_size)
+        x_right_windows = window_partition(shifted_x_right, self.window_size)
+        x_left_selected_windows = window_partition(shifted_x_left_selected, self.window_size)
+        x_right_selected_windows = window_partition(shifted_x_right_selected, self.window_size)
+        # nW*B, window_size*window_size, C
+        x_left_windows = x_left_windows.view(-1, self.window_size * self.window_size, c)
+        x_right_windows = x_right_windows.view(-1, self.window_size * self.window_size, c)
+        x_left_selected_windows = x_left_selected_windows.view(-1, self.window_size * self.window_size, c)
+        x_right_selected_windows = x_right_selected_windows.view(-1, self.window_size * self.window_size, c)
+
+        # W-MSA/SW-MSA (to be compatible for testing on images whose shapes are the multiple of window size
+        attn_mask = self.attn_mask if self.input_resolution == x_size else self.calculate_mask(x_size).to(x_left.device)
+        x_leftT, attn_r2l = self.attn(x_left_windows, x_right_selected_windows, mask=attn_mask)
+        x_rightT, attn_l2r = self.attn(x_right_windows, x_left_selected_windows, mask=attn_mask)
+
+         ## masks
+        Mr2l_relaxed = self.M_Relax(attn_r2l, num_pixels=2)
+        Ml2r_relaxed = self.M_Relax(attn_l2r, num_pixels=2)
+        m_left = Mr2l_relaxed.reshape(-1, 1, n) @ attn_l2r.permute(0, 2, 1).reshape(-1, n, 1)
+        m_right = Ml2r_relaxed.reshape(-1, 1, n) @ attn_r2l.permute(0, 2, 1).reshape(-1, n, 1)
+        m_left = m_left.squeeze().reshape(-1, self.num_heads, n, 1).permute(0, 2, 1, 3).detach() # b nh 
+        m_right = m_right.squeeze().reshape(-1, self.num_heads, n, 1).permute(0, 2, 1, 3).detach()
+        m_left = torch.tanh(5 * m_left)
+        m_right = torch.tanh(5 * m_right)
+        
+        def matmul_mask(x, m):
+            return (x.reshape(b, n, self.num_heads, c//self.num_heads) * m).reshape(b, n , c)
+
+        out_left = matmul_mask(x_left, (1 - m_left)) + matmul_mask(x_leftT, m_left)
+        out_right = matmul_mask(x_right, (1 - m_right)) + matmul_mask(x_rightT, m_right)        
+       
+        # merge windows
+        out_left = out_left.view(-1, self.window_size, self.window_size, c)
+        out_right = out_left.view(-1, self.window_size, self.window_size, c)
+        shifted_x_left = window_reverse(out_left, self.window_size, h, w)  # B H' W' C
+        shifted_x_right = window_reverse(out_right, self.window_size, h, w)  # B H' W' C
+
+        # reverse cyclic shift
+        if self.shift_size > 0:
+            x_left = torch.roll(shifted_x_left, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
+            x_right = torch.roll(shifted_x_right, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
+        else:
+            x_left = shifted_x_left
+            x_right = shifted_x_right
+
+        x_left = x_left.view(b, n, c)
+        x_right = x_left.view(b, n, c)
+
+        # FFN
+        x_left = shortcut_left + self.drop_path(x_left)
+        x_right = shortcut_right + self.drop_path(x_right)
+        x_left = x_left + self.drop_path(self.mlp(self.norm2(x_left)))
+        x_right = x_right + self.drop_path(self.mlp(self.norm2(x_right)))
+
+        return x_left, x_right
+
+    def extra_repr(self) -> str:
+        return f"dim={self.dim}, input_resolution={self.input_resolution}, num_heads={self.num_heads}, " \
+               f"window_size={self.window_size}, shift_size={self.shift_size}, mlp_ratio={self.mlp_ratio}"
+
+    def flops(self):
+        flops = 0
+        H, W = self.input_resolution
+        # norm1
+        flops += self.dim * H * W
+        # W-MSA/SW-MSA
+        nW = H * W / self.window_size / self.window_size
+        flops += nW * self.attn.flops(self.window_size * self.window_size)
+        # mlp
+        flops += 2 * H * W * self.dim * self.dim * self.mlp_ratio
+        # norm2
+        flops += self.dim * H * W
+        return flops
+
 
 if __name__ == '__main__':
     upscale = 2
