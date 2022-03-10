@@ -205,8 +205,8 @@ class PAM(nn.Module):
         w_size = self.w_size
         b, c, h, w = x_left.shape
         coords_b, coords_h, coords_w = torch.meshgrid([torch.arange(b), torch.arange(h), torch.arange(w)], indexing='ij') # H, W
-        # V_left = ((coords_w.to(self.device) - d_left.long() ) >= 0).unsqueeze(1).int() # B , H , W
-        # V_Right = ((coords_w.to(self.device) + d_right.long()) <= w - 1).unsqueeze(1).int() # B , H , W
+        m_left = ((coords_w.to(self.device) - d_left.long() ) >= 0).unsqueeze(1).int() # B , H , W
+        m_right = ((coords_w.to(self.device) + d_right.long()) <= w - 1).unsqueeze(1).int() # B , H , W
         r2l_w = (torch.clamp(coords_w - d_left.long().cpu(), min=0) )
         l2r_w = (torch.clamp(coords_w + d_right.long().cpu(), max=w - 1))
 
@@ -240,8 +240,8 @@ class PAM(nn.Module):
         x_rightT = Ml2r @ x_left_selected.reshape(-1, w_size * w_size, c)
         x_leftT = self.unpatchify(x_leftT, b, c, h, w)  # B, C, H , W
         x_rightT = self.unpatchify(x_rightT, b, c, h, w)  # B, C, H , W
-        out_left = x_left * (1 - V_left) + x_leftT * V_left
-        out_right = x_right * (1 - V_right) +  x_rightT * V_right
+        out_left = x_left * (1 - V_left) + x_leftT * V_left * m_left
+        out_right = x_right * (1 - V_right) + x_rightT * V_right * m_right
         return out_left, out_right
 
     def flop(self, H, W):

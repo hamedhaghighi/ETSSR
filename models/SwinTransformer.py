@@ -162,7 +162,7 @@ class WindowAttention(nn.Module):
         return flops
 
 
-class SwinAttnBlockBlock(nn.Module):
+class SwinAttnBlock(nn.Module):
     r""" Swin Transformer Block.
 
     Args:
@@ -236,7 +236,7 @@ class SwinAttnBlockBlock(nn.Module):
 
         return attn_mask
 
-    def forward(self, x, x_size):
+    def forward(self, x, x_size, y=None):
         H, W = x_size
         B, L, C = x.shape
         # assert L == H * W, "input feature has wrong size"
@@ -335,7 +335,7 @@ class RSTB(nn.Module):
         self.dim = dim
         self.input_resolution = input_resolution
         self.blocks = nn.ModuleList([
-            SwinAttnBlockBlock(dim=dim, input_resolution=input_resolution,
+            SwinAttnBlock(dim=dim, input_resolution=input_resolution,
                                  num_heads=num_heads, window_size=window_size,
                                  shift_size=0 if (
                                      i % 2 == 0) else window_size // 2,
@@ -374,7 +374,7 @@ class RSTB(nn.Module):
 
 
 
-class SwinAttnBlock(nn.Module):
+class SwinAttn(nn.Module):
     r""" SwinIR
         A PyTorch impl of : `SwinIR: Image Restoration Using Swin Transformer`, based on Swin Transformer.
 
@@ -405,7 +405,7 @@ class SwinAttnBlock(nn.Module):
                  norm_layer=nn.LayerNorm, ape=False, patch_norm=True,
                  use_checkpoint=False, resi_connection='1conv',
                  **kwargs):
-        super(SwinAttnBlock, self).__init__()
+        super(SwinAttn, self).__init__()
         num_in_ch = in_chans
         num_out_ch = in_chans
         num_feat = 64
@@ -508,7 +508,7 @@ if __name__ == '__main__':
     window_size = 8
     height = (60 // upscale // window_size + 1) * window_size
     width = (180 // upscale // window_size + 1) * window_size
-    model = SwinAttnBlock(upscale=2, img_size=(height, width), window_size=window_size, depths=[6, 6, 6, 6], embed_dim=60, num_heads=[6, 6, 6, 6], mlp_ratio=2)
+    model = SwinAttn(upscale=2, img_size=(height, width), window_size=window_size, depths=[6, 6, 6, 6], embed_dim=60, num_heads=[6, 6, 6, 6], mlp_ratio=2)
     print('Input Height:', height, 'Width: ',width)
     # print ('FLOPS: ', model.flops() / 1e9)
     x = torch.randn((1, 60, height, width))
