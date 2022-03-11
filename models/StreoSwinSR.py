@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from skimage import morphology
 from torchvision import transforms
 import torch.utils.checkpoint as checkpoint
-from SwinTransformer import SwinAttn, CoSwinAttnBlock
+from models.SwinTransformer import SwinAttn, CoSwinAttnBlock
 from timm.models.layers import trunc_normal_
 
 class Net(nn.Module):
