@@ -34,7 +34,7 @@ class DataSetLoader(Dataset):
         img_lr_left[..., 3] = img_lr_left[..., 3] / 2.0
         img_lr_right[..., 3] = img_lr_right[..., 3] / 2.0
         if self.to_tensor:
-            img_hr_left, img_hr_right, img_lr_left, img_lr_right = augmentation(img_hr_left, img_hr_right, img_lr_left, img_lr_right)
+            # img_hr_left, img_hr_right, img_lr_left, img_lr_right = augmentation(img_hr_left, img_hr_right, img_lr_left, img_lr_right)
             return toTensor(img_hr_left), toTensor(img_hr_right), toTensor(img_lr_left), toTensor(img_lr_right)
         return img_hr_left, img_hr_right, img_lr_left, img_lr_right
 
@@ -44,14 +44,13 @@ class DataSetLoader(Dataset):
 
 def augmentation(hr_image_left, hr_image_right, lr_image_left, lr_image_right):
 
-    # TODO : horizon aug is off
-        # if random.random() < 0.5:     # flip horizonly
-        #     lr_image_left_ = lr_image_right[:, ::-1, :]
-        #     lr_image_right_ = lr_image_left[:, ::-1, :]
-        #     hr_image_left_ = hr_image_right[:, ::-1, :]
-        #     hr_image_right_ = hr_image_left[:, ::-1, :]
-        #     lr_image_left, lr_image_right = lr_image_left_, lr_image_right_
-        #     hr_image_left, hr_image_right = hr_image_left_, hr_image_right_
+        if random.random() < 0.5:     # flip horizonly
+            lr_image_left_ = lr_image_right[:, ::-1, :]
+            lr_image_right_ = lr_image_left[:, ::-1, :]
+            hr_image_left_ = hr_image_right[:, ::-1, :]
+            hr_image_right_ = hr_image_left[:, ::-1, :]
+            lr_image_left, lr_image_right = lr_image_left_, lr_image_right_
+            hr_image_left, hr_image_right = hr_image_left_, hr_image_right_
 
         if random.random() < 0.5:  # flip vertically
             lr_image_left = lr_image_left[::-1, :, :]

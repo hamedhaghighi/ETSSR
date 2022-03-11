@@ -7,20 +7,25 @@ import matplotlib.pyplot as plt
 from skimage import morphology
 from torchvision import transforms
 import torch.utils.checkpoint as checkpoint
-from models.SwinTransformer import SwinAttnBlock, CoSwinAttnBlock
+from SwinTransformer import SwinAttn, CoSwinAttnBlock
+from timm.models.layers import trunc_normal_
 
 class Net(nn.Module):
-    def __init__(self, upscale_factor, img_size, input_channel = 3, w_size = 8,device='cpu'):
+    def __init__(self, upscale_factor, img_size, model, input_channel = 3, w_size = 8,device='cpu'):
         super(Net, self).__init__()
+        self.model = model
         self.input_channel = input_channel
         self.upscale_factor = upscale_factor
         self.init_feature = nn.Conv2d(input_channel, 64, 3, 1, 1, bias=True)
-        self.deep_feature= SwinAttnBlock(img_size=img_size, window_size=w_size, depths=[
+        self.deep_feature= SwinAttn(img_size=img_size, window_size=w_size, depths=[
                           6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
-        self.co_feature = CoSwinAttnBlock(img_size=img_size, window_size=w_size, depths=[6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
+        if model == 'swin_pam':
+            self.co_feature = PAM(64)
+        elif model == 'all_swin':
+            self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
         self.CAlayer = CALayer(128)
         self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
-        self.reconstruct = SwinAttnBlock(img_size=img_size, window_size=w_size, depths=[
+        self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=[
             6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
         self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
         self.apply(self._init_weights)
@@ -37,7 +42,10 @@ class Net(nn.Module):
         buffer_right = self.init_feature(x_right)
         buffer_left = self.deep_feature(buffer_left)
         buffer_right = self.deep_feature(buffer_right)
-        buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right, d_left, d_right)
+        if self.model == 'swin_pam':
+            buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right)
+        elif self.model == 'all_swin':
+            buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right, d_left, d_right)
 
         buffer_leftF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1))
         buffer_rightF = self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
@@ -47,6 +55,15 @@ class Net(nn.Module):
         out_right = self.upscale(buffer_rightF) + x_right_upscale
         return out_left, out_right
 
+    @torch.jit.ignore
+    def no_weight_decay(self):
+        return {'absolute_pos_embed'}
+
+    @torch.jit.ignore
+    def no_weight_decay_keywords(self):
+        return {'relative_position_bias_table'}
+
+    
     def _init_weights(self, m):
         if isinstance(m, nn.Linear):
             trunc_normal_(m.weight, std=.02)
@@ -69,6 +86,15 @@ class Net(nn.Module):
         ''' SR Loss '''
         self.loss_SR = criterion_L1(SR_left, HR_left) + criterion_L1(SR_right, HR_right)
         return self.loss_SR
+
+    def check_image_size(self, x):
+        _, _, h, w = x.size()
+        mod_pad_h = (self.window_size - h %
+                     self.window_size) % self.window_size
+        mod_pad_w = (self.window_size - w %
+                     self.window_size) % self.window_size
+        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
+        return x
 
     def flop(self, H, W):
         N = H * W
@@ -240,24 +266,8 @@ class CoSwinAttn(nn.Module):
 
         
 
+
     
-
-    @torch.jit.ignore
-    def no_weight_decay(self):
-        return {'absolute_pos_embed'}
-
-    @torch.jit.ignore
-    def no_weight_decay_keywords(self):
-        return {'relative_position_bias_table'}
-
-    def check_image_size(self, x):
-        _, _, h, w = x.size()
-        mod_pad_h = (self.window_size - h %
-                     self.window_size) % self.window_size
-        mod_pad_w = (self.window_size - w %
-                     self.window_size) % self.window_size
-        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
-        return x
 
     def forward(self, x_left, x_right, d_left, d_right):
 
@@ -277,6 +287,61 @@ class CoSwinAttn(nn.Module):
         return x_left, x_right
 
 
+class PAM(nn.Module):
+    def __init__(self, channels, device='cpu'):
+        super(PAM, self).__init__()
+        self.device = device
+        self.channel = channels
+        self.Q = nn.Conv2d(channels, channels, 1, 1, 0, groups=4, bias=True)
+        self.K = nn.Conv2d(channels, channels, 1, 1, 0, groups=4, bias=True)
+        self.softmax = nn.Softmax(-1)
+        self.rb = ResB(channels)
+        self.bn = nn.BatchNorm2d(channels)
+        self.window_centre_table = None
+
+
+    def __call__(self, x_left, x_right):
+        # Building matching indexes and patch around that using disparity
+        b, c, h, w = x_left.shape
+
+        Q = self.Q(self.rb(self.bn(x_left)))
+        K = self.K(self.rb(self.bn(x_right)))
+
+        Q = Q - torch.mean(Q, 3).unsqueeze(3).repeat(1, 1, 1, w)
+        K = K - torch.mean(K, 3).unsqueeze(3).repeat(1, 1, 1, w)
+
+        score = Q.permute(0, 2, 3, 1).contiguous().view(-1, w, c)@ K.permute(0, 2, 1, 3).contiguous().view(-1, c, w)
+        M_right_to_left = self.softmax(score)                                                   # (B*H) * Wl * Wr
+        M_left_to_right = self.softmax(score.permute(0, 2, 1))                                  # (B*H) * Wr * Wl
+
+        M_right_to_left_relaxed = M_Relax(M_right_to_left, num_pixels=2)
+        V_left = (M_right_to_left_relaxed.contiguous().view(-1, w).unsqueeze(1) @ M_left_to_right.permute(0, 2, 1).contiguous().view(-1, w).unsqueeze(2)).detach().contiguous().view(b, 1, h, w)  # (B*H*Wr) * Wl * 1
+        M_left_to_right_relaxed = M_Relax(M_left_to_right, num_pixels=2)
+        V_right = (M_left_to_right_relaxed.contiguous().view(-1, w).unsqueeze(1) @  # (B*H*Wl) * 1 * Wr
+                            M_right_to_left.permute(0, 2, 1).contiguous().view(-1, w).unsqueeze(2)
+                                  ).detach().contiguous().view(b, 1, h, w)   # (B*H*Wr) * Wl * 1
+
+        V_left_tanh = torch.tanh(5 * V_left)
+        V_right_tanh = torch.tanh(5 * V_right)
+
+        x_leftT = (M_right_to_left @ x_right.permute(0, 2, 3, 1).contiguous().view(-1, w, c)
+                            ).contiguous().view(b, h, w, c).permute(0, 3, 1, 2)                           #  B, C0, H0, W0
+        x_rightT = (M_left_to_right @ x_left.permute(0, 2, 3, 1).contiguous().view(-1, w, c)
+                            ).contiguous().view(b, h, w, c).permute(0, 3, 1, 2)                              #  B, C0, H0, W0
+        out_left = x_left * (1 - V_left_tanh.repeat(1, c, 1, 1)) + x_leftT * V_left_tanh.repeat(1, c, 1, 1)
+        out_right = x_right * (1 - V_right_tanh.repeat(1, c, 1, 1)) +  x_rightT * V_right_tanh.repeat(1, c, 1, 1)
+        return out_left, out_right
+
+    def flop(self, H, W):
+        N = H * W
+        flop = 0
+        flop += 2 * N * 4 * self.channel
+        flop += 2 * self.rb.flop(N)
+        flop += 2 * N * self.channel * (4 * self.channel + 1)
+        flop += H * (W**2) * self.channel
+        # flop += 2 * H * W
+        flop += 2 * H * (W**2) * self.channel
+        return flop
 
 
 def M_Relax(M, num_pixels):
@@ -297,7 +362,7 @@ def M_Relax(M, num_pixels):
 
 if __name__ == "__main__":
     input_shape = (10, 30)
-    net = Net(upscale_factor=2, img_size=input_shape, input_channel=10, w_size=10)
+    net = Net(upscale_factor=2, img_size=input_shape, model='swin_pam', input_channel=10, w_size=10)
     total = sum([param.nelement() for param in net.parameters()])
     print('   Number of params: %.2fM' % (total / 1e6))
     # print('   FLOPS: %.2fG' % (net.flop(30 , 90) / 1e9))

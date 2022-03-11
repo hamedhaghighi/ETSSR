@@ -240,8 +240,8 @@ class PAM(nn.Module):
         x_rightT = Ml2r @ x_left_selected.reshape(-1, w_size * w_size, c)
         x_leftT = self.unpatchify(x_leftT, b, c, h, w)  # B, C, H , W
         x_rightT = self.unpatchify(x_rightT, b, c, h, w)  # B, C, H , W
-        out_left = x_left * (1 - V_left) + x_leftT * V_left * m_left
-        out_right = x_right * (1 - V_right) + x_rightT * V_right * m_right
+        out_left = x_left  + x_leftT * m_left
+        out_right = x_right + x_rightT * m_right
         return out_left, out_right
 
     def flop(self, H, W):
