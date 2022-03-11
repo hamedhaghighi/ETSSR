@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from skimage import morphology
 from torchvision import transforms
 import torch.utils.checkpoint as checkpoint
-from models.SwinTransformer import SwinAttn, CoSwinAttnBlock
+from models.SwinTransformer import SwinAttn, CoSwinAttnBlock, RSTB
 from timm.models.layers import trunc_normal_
 
 class Net(nn.Module):
@@ -17,16 +17,19 @@ class Net(nn.Module):
         self.input_channel = input_channel
         self.upscale_factor = upscale_factor
         self.init_feature = nn.Conv2d(input_channel, 64, 3, 1, 1, bias=True)
-        self.deep_feature= SwinAttn(img_size=img_size, window_size=w_size, depths=[
-                          6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
-        if model == 'swin_pam':
-            self.co_feature = PAM(64)
-        elif model == 'all_swin':
-            self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
-        self.CAlayer = CALayer(128)
-        self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
-        self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=[
-            6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
+        if self.model == 'swin_interleaved':
+            print('im here')
+            self.deep_feature = SwinAttnInterleaved(img_size=img_size, window_size=w_size, depths=[6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
+        else:
+            self.deep_feature= SwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
+            if model == 'swin_pam':
+                self.co_feature = PAM(64)
+            elif model == 'all_swin':
+                self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
+            self.CAlayer = CALayer(128)
+            self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
+            self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=[
+                6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
         self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
         self.apply(self._init_weights)
 
@@ -40,17 +43,21 @@ class Net(nn.Module):
         x_right_upscale = F.interpolate(x_right[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
         buffer_left = self.init_feature(x_left)
         buffer_right = self.init_feature(x_right)
-        buffer_left = self.deep_feature(buffer_left)
-        buffer_right = self.deep_feature(buffer_right)
-        if self.model == 'swin_pam':
-            buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right)
-        elif self.model == 'all_swin':
-            buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right, d_left, d_right)
+        if self.model == 'swin_interleaved':
+            buffer_leftF, buffer_rightF = self.deep_feature(buffer_left, buffer_right, d_left, d_right)
+        else:
+            buffer_left = self.deep_feature(buffer_left)
+            buffer_right = self.deep_feature(buffer_right)
+            
+            if self.model == 'swin_pam':
+                buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right)
+            elif self.model == 'all_swin':
+                buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right, d_left, d_right)
 
-        buffer_leftF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1))
-        buffer_rightF = self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
-        buffer_leftF = self.reconstruct(buffer_leftF)
-        buffer_rightF = self.reconstruct(buffer_rightF)
+            buffer_leftF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1))
+            buffer_rightF = self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
+            buffer_leftF = self.reconstruct(buffer_leftF)
+            buffer_rightF = self.reconstruct(buffer_rightF)
         out_left = self.upscale(buffer_leftF) + x_left_upscale
         out_right = self.upscale(buffer_rightF) + x_right_upscale
         return out_left, out_right
@@ -156,8 +163,7 @@ class CoRSTB(nn.Module):
 
     def __init__(self, dim, input_resolution, depth, num_heads, window_size,
                  mlp_ratio=4., qkv_bias=True, drop=0.,
-                 drop_path=0., norm_layer=nn.LayerNorm, downsample=None, use_checkpoint=False,
-                 img_size=224, patch_size=4, resi_connection='1conv'):
+                 drop_path=0., norm_layer=nn.LayerNorm, use_checkpoint=False):
         super(CoRSTB, self).__init__()
 
         self.use_checkpoint = use_checkpoint
@@ -213,9 +219,6 @@ class CoSwinAttn(nn.Module):
                  use_checkpoint=False, resi_connection='1conv',
                  **kwargs):
         super(CoSwinAttn, self).__init__()
-        num_in_ch = in_chans
-        num_out_ch = in_chans
-        num_feat = 64
         if in_chans == 3:
             rgb_mean = (0.4488, 0.4371, 0.4040)
             self.mean = torch.Tensor(rgb_mean).view(1, 3, 1, 1)
@@ -231,14 +234,12 @@ class CoSwinAttn(nn.Module):
         self.num_features = embed_dim
         self.mlp_ratio = mlp_ratio
 
-        num_patches = img_size[0] * img_size[1]
         patches_resolution = [img_size[0], img_size[1]]
         self.patches_resolution = patches_resolution
         self.pre_norm = norm_layer(embed_dim)
 
         # stochastic depth
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate,
-                                                sum(depths))]  # stochastic depth decay rule
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
 
         # build Residual Swin Transformer blocks (RSTB)
         self.layers = nn.ModuleList()
@@ -254,20 +255,12 @@ class CoSwinAttn(nn.Module):
                          drop_path=dpr[sum(depths[:i_layer]):sum(
                              depths[:i_layer + 1])],  # no impact on SR results
                          norm_layer=norm_layer,
-                         downsample=None,
-                         use_checkpoint=use_checkpoint,
-                         img_size=img_size,
-                         patch_size=patch_size,
-                         resi_connection=resi_connection
-
+                         use_checkpoint=use_checkpoint
                          )
             self.layers.append(layer)
         self.norm = norm_layer(self.num_features)
 
         
-
-
-    
 
     def forward(self, x_left, x_right, d_left, d_right):
 
@@ -285,6 +278,92 @@ class CoSwinAttn(nn.Module):
         x_left = x_left.transpose(1, 2).view(B, C, x_size[0], x_size[1])
         x_right = x_right.transpose(1, 2).view(B, C, x_size[0], x_size[1])
         return x_left, x_right
+
+
+class SwinAttnInterleaved(nn.Module):
+    def __init__(self, img_size=64, patch_size=1, in_chans=3,
+                 embed_dim=96, depths=[6, 6, 6, 6], num_heads=[6, 6, 6, 6],
+                 window_size=7, mlp_ratio=4., qkv_bias=True, drop_path_rate=0.1,
+                 norm_layer=nn.LayerNorm, ape=False, patch_norm=True,
+                 use_checkpoint=False, resi_connection='1conv',
+                 **kwargs):
+        super(SwinAttnInterleaved, self).__init__()
+        if in_chans == 3:
+            rgb_mean = (0.4488, 0.4371, 0.4040)
+            self.mean = torch.Tensor(rgb_mean).view(1, 3, 1, 1)
+        else:
+            self.mean = torch.zeros(1, 1, 1, 1)
+
+        self.window_size = window_size
+
+        self.num_layers = len(depths)
+        self.embed_dim = embed_dim
+        self.ape = ape
+        self.patch_norm = patch_norm
+        self.num_features = embed_dim
+        self.mlp_ratio = mlp_ratio
+
+        patches_resolution = [img_size[0], img_size[1]]
+        self.patches_resolution = patches_resolution
+        self.pre_norm = norm_layer(embed_dim)
+
+        # stochastic depth
+        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
+
+        # build Residual Swin Transformer blocks (RSTB)
+        self.disjoint_layers = nn.ModuleList()
+        self.merge_layers = nn.ModuleList()
+        for i_layer in range(self.num_layers):
+            layer = RSTB(dim=embed_dim,
+                           input_resolution=(patches_resolution[0],
+                                             patches_resolution[1]),
+                           depth=depths[i_layer],
+                           num_heads=num_heads[i_layer],
+                           window_size=window_size,
+                           mlp_ratio=self.mlp_ratio,
+                           qkv_bias=qkv_bias,
+                           drop_path=dpr[sum(depths[:i_layer]):sum(
+                               depths[:i_layer + 1])],  # no impact on SR results
+                           norm_layer=norm_layer,
+                           use_checkpoint=use_checkpoint
+                           )
+            self.disjoint_layers.append(layer)
+
+        for i_layer in range(self.num_layers):
+            layer = CoRSTB(dim=embed_dim,
+                           input_resolution=(patches_resolution[0],
+                                             patches_resolution[1]),
+                           depth=depths[i_layer],
+                           num_heads=num_heads[i_layer],
+                           window_size=window_size,
+                           mlp_ratio=self.mlp_ratio,
+                           qkv_bias=qkv_bias,
+                           drop_path=dpr[sum(depths[:i_layer]):sum(
+                               depths[:i_layer + 1])],  # no impact on SR results
+                           norm_layer=norm_layer,
+                           use_checkpoint=use_checkpoint,
+                           )
+            self.merge_layers.append(layer)
+        self.norm = norm_layer(self.num_features)
+
+    def forward(self, x_left, x_right, d_left, d_right):
+
+        x_size = (x_left.shape[2], x_left.shape[3])
+        x_left = x_left.flatten(2).transpose(1, 2)
+        x_right = x_right.flatten(2).transpose(1, 2)
+        x_left = self.pre_norm(x_left)
+        x_right = self.pre_norm(x_right)
+        for dlayer, mlayer in zip(self.disjoint_layers, self.merge_layers):
+            x_left, x_right = dlayer(x_left, x_size), dlayer(x_right, x_size)
+            x_left, x_right = mlayer(x_left, x_right, d_left, d_right, x_size)
+
+        x_left = self.norm(x_left)  # B L C
+        x_right = self.norm(x_right)
+        B, HW, C = x_left.shape
+        x_left = x_left.transpose(1, 2).view(B, C, x_size[0], x_size[1])
+        x_right = x_right.transpose(1, 2).view(B, C, x_size[0], x_size[1])
+        return x_left, x_right
+
 
 
 class PAM(nn.Module):

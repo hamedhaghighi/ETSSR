@@ -31,14 +31,7 @@ class Mlp(nn.Module):
 
 
 def window_partition(x, window_size):
-    """
-    Args:
-        x: (B, H, W, C)
-        window_size (int): window size
 
-    Returns:
-        windows: (num_windows*B, window_size, window_size, C)
-    """
     B, H, W, C = x.shape
     x = x.view(B, H // window_size, window_size,
                W // window_size, window_size, C)
@@ -48,16 +41,7 @@ def window_partition(x, window_size):
 
 
 def window_reverse(windows, window_size, H, W):
-    """
-    Args:
-        windows: (num_windows*B, window_size, window_size, C)
-        window_size (int): Window size
-        H (int): Height of image
-        W (int): Width of image
 
-    Returns:
-        x: (B, H, W, C)
-    """
     B = int(windows.shape[0] / (H * W / window_size / window_size))
     x = windows.view(B, H // window_size, W // window_size,
                      window_size, window_size, -1)
@@ -66,19 +50,6 @@ def window_reverse(windows, window_size, H, W):
 
 
 class WindowAttention(nn.Module):
-    r""" Window based multi-head self attention (W-MSA) module with relative position bias.
-    It supports both of shifted and non-shifted window.
-
-    Args:
-        dim (int): Number of input channels.
-        window_size (tuple[int]): The height and width of the window.
-        num_heads (int): Number of attention heads.
-        qkv_bias (bool, optional):  If True, add a learnable bias to query, key, value. Default: True
-        qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set
-        attn_drop (float, optional): Dropout ratio of attention weight. Default: 0.0
-        proj_drop (float, optional): Dropout ratio of output. Default: 0.0
-    """
-
     def __init__(self, dim, window_size, num_heads, qkv_bias=True, proj_drop=0.):
 
         super().__init__()
@@ -89,8 +60,7 @@ class WindowAttention(nn.Module):
         self.scale = head_dim ** -0.5
 
         # define a parameter table of relative position bias
-        self.relative_position_bias_table = nn.Parameter(
-            torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
+        self.relative_position_bias_table = nn.Parameter(torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
 
         # get pair-wise relative position index for each token inside the window
         coords_h = torch.arange(self.window_size[0])
@@ -163,23 +133,6 @@ class WindowAttention(nn.Module):
 
 
 class SwinAttnBlock(nn.Module):
-    r""" Swin Transformer Block.
-
-    Args:
-        dim (int): Number of input channels.
-        input_resolution (tuple[int]): Input resulotion.
-        num_heads (int): Number of attention heads.
-        window_size (int): Window size.
-        shift_size (int): Shift size for SW-MSA.
-        mlp_ratio (float): Ratio of mlp hidden dim to embedding dim.
-        qkv_bias (bool, optional): If True, add a learnable bias to query, key, value. Default: True
-        qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set.
-        drop (float, optional): Dropout rate. Default: 0.0
-        attn_drop (float, optional): Attention dropout rate. Default: 0.0
-        drop_path (float, optional): Stochastic depth rate. Default: 0.0
-        act_layer (nn.Module, optional): Activation layer. Default: nn.GELU
-        norm_layer (nn.Module, optional): Normalization layer.  Default: nn.LayerNorm
-    """
 
     def __init__(self, dim, input_resolution, num_heads, window_size=7, shift_size=0,
                  mlp_ratio=4., qkv_bias=True, drop=0., drop_path=0.,
@@ -303,32 +256,10 @@ class SwinAttnBlock(nn.Module):
 
 
 class RSTB(nn.Module):
-    """Residual Swin Transformer Block (RSTB).
-
-    Args:
-        dim (int): Number of input channels.
-        input_resolution (tuple[int]): Input resolution.
-        depth (int): Number of blocks.
-        num_heads (int): Number of attention heads.
-        window_size (int): Local window size.
-        mlp_ratio (float): Ratio of mlp hidden dim to embedding dim.
-        qkv_bias (bool, optional): If True, add a learnable bias to query, key, value. Default: True
-        qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set.
-        drop (float, optional): Dropout rate. Default: 0.0
-        attn_drop (float, optional): Attention dropout rate. Default: 0.0
-        drop_path (float | tuple[float], optional): Stochastic depth rate. Default: 0.0
-        norm_layer (nn.Module, optional): Normalization layer. Default: nn.LayerNorm
-        downsample (nn.Module | None, optional): Downsample layer at the end of the layer. Default: None
-        use_checkpoint (bool): Whether to use checkpointing to save memory. Default: False.
-        img_size: Input image size.
-        patch_size: Patch size.
-        resi_connection: The convolutional block before residual connection.
-    """
 
     def __init__(self, dim, input_resolution, depth, num_heads, window_size,
                  mlp_ratio=4., qkv_bias=True, drop=0.,
-                 drop_path=0., norm_layer=nn.LayerNorm, downsample=None, use_checkpoint=False,
-                 img_size=224, patch_size=4, resi_connection='1conv'):
+                 drop_path=0., norm_layer=nn.LayerNorm, use_checkpoint=False):
         super(RSTB, self).__init__()
         
         self.use_checkpoint = use_checkpoint
@@ -401,7 +332,6 @@ class SwinAttn(nn.Module):
         self.num_features = embed_dim
         self.mlp_ratio = mlp_ratio
 
-        num_patches = img_size[0] * img_size[1]
         patches_resolution = [img_size[0], img_size[1]]
         self.patches_resolution = patches_resolution
         self.pre_norm = norm_layer(embed_dim)
@@ -423,12 +353,7 @@ class SwinAttn(nn.Module):
                          drop_path=dpr[sum(depths[:i_layer]):sum(
                              depths[:i_layer + 1])],  # no impact on SR results
                          norm_layer=norm_layer,
-                         downsample=None,
-                         use_checkpoint=use_checkpoint,
-                         img_size=img_size,
-                         patch_size=patch_size,
-                         resi_connection=resi_connection
-
+                         use_checkpoint=use_checkpoint
                          )
             self.layers.append(layer)
         self.norm = norm_layer(self.num_features)
@@ -462,18 +387,6 @@ class SwinAttn(nn.Module):
 
 
 class CoWindowAttention(nn.Module):
-    r""" Window based multi-head self attention (W-MSA) module with relative position bias.
-    It supports both of shifted and non-shifted window.
-
-    Args:
-        dim (int): Number of input channels.
-        window_size (tuple[int]): The height and width of the window.
-        num_heads (int): Number of attention heads.
-        qkv_bias (bool, optional):  If True, add a learnable bias to query, key, value. Default: True
-        qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set
-        attn_drop (float, optional): Dropout ratio of attention weight. Default: 0.0
-        proj_drop (float, optional): Dropout ratio of output. Default: 0.0
-    """
 
     def __init__(self, dim, window_size, num_heads, qkv_bias=True, proj_drop=0.):
 
@@ -504,7 +417,7 @@ class CoWindowAttention(nn.Module):
         self.register_buffer("relative_position_index",
                              relative_position_index)
 
-        self.q = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        self.q = nn.Linear(dim, dim, bias=qkv_bias)
         self.kv = nn.Linear(dim, dim * 2, bias=qkv_bias)
         self.proj = nn.Linear(dim, dim)
 
@@ -520,9 +433,7 @@ class CoWindowAttention(nn.Module):
             mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
 
         """
-        w_size = self.window_size[0]
         b, n , c = x.shape
-        
         q = self.q(x).reshape(b, n, 1, self.num_heads, c//self.num_heads).permute(2, 0, 3, 1, 4)
         kv = self.kv(x_selected).reshape(b, n, 2, self.num_heads, c//self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = q[0], kv[0], kv[1] # b , nh, n, c//nh
@@ -532,8 +443,7 @@ class CoWindowAttention(nn.Module):
         q = q * self.scale
         attn = (q @ k.transpose(-2, -1))
 
-        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
-            self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
+        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
         relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
 
         attn = attn + relative_position_bias.unsqueeze(0)
@@ -568,38 +478,9 @@ class CoWindowAttention(nn.Module):
         flops += N * self.dim * self.dim
         return flops
 
-    def M_Relax(self, M, num_pixels):
-        M_list = []
-        M_list.append(M.unsqueeze(1))
-        for i in range(num_pixels):
-            pad = nn.ZeroPad2d(padding=(0, 0, i+1, 0))
-            pad_M = pad(M[:, :-1-i, :])
-            M_list.append(pad_M.unsqueeze(1))
-        for i in range(num_pixels):
-            pad = nn.ZeroPad2d(padding=(0, 0, 0, i+1))
-            pad_M = pad(M[:, i+1:, :])
-            M_list.append(pad_M.unsqueeze(1))
-        M_relaxed = torch.sum(torch.cat(M_list, 1), dim=1)
-        return M_relaxed
+   
 
 class CoSwinAttnBlock(nn.Module):
-    r""" Swin Transformer Block.
-
-    Args:
-        dim (int): Number of input channels.
-        input_resolution (tuple[int]): Input resulotion.
-        num_heads (int): Number of attention heads.
-        window_size (int): Window size.
-        shift_size (int): Shift size for SW-MSA.
-        mlp_ratio (float): Ratio of mlp hidden dim to embedding dim.
-        qkv_bias (bool, optional): If True, add a learnable bias to query, key, value. Default: True
-        qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set.
-        drop (float, optional): Dropout rate. Default: 0.0
-        attn_drop (float, optional): Attention dropout rate. Default: 0.0
-        drop_path (float, optional): Stochastic depth rate. Default: 0.0
-        act_layer (nn.Module, optional): Activation layer. Default: nn.GELU
-        norm_layer (nn.Module, optional): Normalization layer.  Default: nn.LayerNorm
-    """
 
     def __init__(self, dim, input_resolution, num_heads, window_size=7, shift_size=0,
                  mlp_ratio=4., qkv_bias=True, drop=0., drop_path=0.,
@@ -661,20 +542,17 @@ class CoSwinAttnBlock(nn.Module):
     def forward(self, x_left, x_right, d_left, d_right, x_size):
         h, w = x_size
         b, n, c = x_left.shape
-        # m_left = ((coords_w.to(self.device) - d_left.long() ) >= 0).unsqueeze(1).int() # B , H , W
-        # m_right = ((coords_w.to(self.device) + d_right.long()) <= w - 1).unsqueeze(1).int() # B , H , W
+
         coords_b, coords_h, coords_w = torch.meshgrid([torch.arange(b), torch.arange(h), torch.arange(w)], indexing='ij')  # H, W
         # m_left = ((coords_w.to(self.device) - d_left.long() ) >= 0).unsqueeze(1).int() # B , H , W
-        # V_Right = ((coords_w.to(self.device) + d_right.long()) <= w - 1).unsqueeze(1).int() # B , H , W
+        # m_right = ((coords_w.to(self.device) + d_right.long()) <= w - 1).unsqueeze(1).int() # B , H , W
         r2l_w = (torch.clamp(coords_w - d_left.long().cpu(), min=0))
         l2r_w = (torch.clamp(coords_w + d_right.long().cpu(), max=w - 1))
         # assert L == H * W, "input feature has wrong size"
-        shortcut_left = x_left
-        shortcut_right = x_right
-        x_left = self.norm1(x_left)
-        x_right = self.norm1(x_right)
-        x_left = x_left.view(b, h, w, c)
-        x_right = x_right.view(b, h, w, c)
+        shortcut_left , shortcut_right = x_left, x_right
+        x_left, x_right = self.norm1(x_left), self.norm1(x_right)
+        x_left, x_right = x_left.view(b, h, w, c), x_right.view(b, h, w, c)
+
         x_left_selected = x_left[coords_b, coords_h, l2r_w].clone()
         x_right_selected = x_right[coords_b, coords_h, r2l_w].clone()
         # cyclic shift
@@ -707,24 +585,25 @@ class CoSwinAttnBlock(nn.Module):
         x_rightT, attn_l2r = self.attn(x_right_windows, x_left_selected_windows, mask=attn_mask)
 
          ## masks
+        ww = self.window_size * self.window_size
         Mr2l_relaxed = self.M_Relax(attn_r2l, num_pixels=2)
         Ml2r_relaxed = self.M_Relax(attn_l2r, num_pixels=2)
-        m_left = Mr2l_relaxed.reshape(-1, 1, n) @ attn_l2r.permute(0, 2, 1).reshape(-1, n, 1)
-        m_right = Ml2r_relaxed.reshape(-1, 1, n) @ attn_r2l.permute(0, 2, 1).reshape(-1, n, 1)
-        m_left = m_left.squeeze().reshape(-1, self.num_heads, n, 1).permute(0, 2, 1, 3).detach() # b nh 
-        m_right = m_right.squeeze().reshape(-1, self.num_heads, n, 1).permute(0, 2, 1, 3).detach()
+        m_left = Mr2l_relaxed.reshape(-1, 1, ww) @ attn_l2r.permute(0, 1, 3, 2).reshape(-1, ww, 1)
+        m_right = Ml2r_relaxed.reshape(-1, 1, ww) @ attn_r2l.permute(0, 1, 3, 2).reshape(-1, ww, 1)
+        m_left = m_left.squeeze().reshape(-1, self.num_heads, ww, 1).permute(0, 2, 1, 3).detach() # b nh 
+        m_right = m_right.squeeze().reshape(-1, self.num_heads, ww, 1).permute(0, 2, 1, 3).detach()
         m_left = torch.tanh(5 * m_left)
         m_right = torch.tanh(5 * m_right)
         
         def matmul_mask(x, m):
-            return (x.reshape(b, n, self.num_heads, c//self.num_heads) * m).reshape(b, n , c)
+            return (x.reshape(x.shape[0], ww, self.num_heads, c//self.num_heads) * m).reshape(x.shape[0], ww, c)
 
-        out_left = matmul_mask(x_left, (1 - m_left)) + matmul_mask(x_leftT, m_left)
-        out_right = matmul_mask(x_right, (1 - m_right)) + matmul_mask(x_rightT, m_right)        
+        out_left = matmul_mask(x_left_windows, (1 - m_left)) + matmul_mask(x_leftT, m_left)
+        out_right = matmul_mask(x_right_windows, (1 - m_right)) + matmul_mask(x_rightT, m_right)        
        
         # merge windows
         out_left = out_left.view(-1, self.window_size, self.window_size, c)
-        out_right = out_left.view(-1, self.window_size, self.window_size, c)
+        out_right = out_right.view(-1, self.window_size, self.window_size, c)
         shifted_x_left = window_reverse(out_left, self.window_size, h, w)  # B H' W' C
         shifted_x_right = window_reverse(out_right, self.window_size, h, w)  # B H' W' C
 
@@ -737,7 +616,7 @@ class CoSwinAttnBlock(nn.Module):
             x_right = shifted_x_right
 
         x_left = x_left.view(b, n, c)
-        x_right = x_left.view(b, n, c)
+        x_right = x_right.view(b, n, c)
 
         # FFN
         x_left = shortcut_left + self.drop_path(x_left)
@@ -750,6 +629,21 @@ class CoSwinAttnBlock(nn.Module):
     def extra_repr(self) -> str:
         return f"dim={self.dim}, input_resolution={self.input_resolution}, num_heads={self.num_heads}, " \
                f"window_size={self.window_size}, shift_size={self.shift_size}, mlp_ratio={self.mlp_ratio}"
+
+
+    def M_Relax(self, M, num_pixels):
+        M_list = []
+        M_list.append(M.unsqueeze(1))
+        for i in range(num_pixels):
+            pad = nn.ZeroPad2d(padding=(0, 0, i+1, 0))
+            pad_M = pad(M[:, :, :-1-i, :])
+            M_list.append(pad_M.unsqueeze(1))
+        for i in range(num_pixels):
+            pad = nn.ZeroPad2d(padding=(0, 0, 0, i+1))
+            pad_M = pad(M[:, :, i+1:, :])
+            M_list.append(pad_M.unsqueeze(1))
+        M_relaxed = torch.sum(torch.cat(M_list, 1), dim=1)
+        return M_relaxed
 
     def flops(self):
         flops = 0
