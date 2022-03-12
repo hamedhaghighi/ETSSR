@@ -205,22 +205,23 @@ class PAM(nn.Module):
         w_size = self.w_size
         b, c, h, w = x_left.shape
         coords_b, coords_h, coords_w = torch.meshgrid([torch.arange(b), torch.arange(h), torch.arange(w)], indexing='ij') # H, W
-        m_left = ((coords_w.to(self.device) - d_left.long() ) >= 0).unsqueeze(1).int() # B , H , W
-        m_right = ((coords_w.to(self.device) + d_right.long()) <= w - 1).unsqueeze(1).int() # B , H , W
-        r2l_w = (torch.clamp(coords_w - d_left.long().cpu(), min=0) )
-        l2r_w = (torch.clamp(coords_w + d_right.long().cpu(), max=w - 1))
+        # m_left = ((coords_w.to(self.device).float() + 0.5 - d_left ) >= 0).unsqueeze(1).float() # B , H , W
+        # m_right = ((coords_w.to(self.device).float() + 0.5 + d_right.long()) <= w - 1).unsqueeze(1).float() # B , H , W
+        r2l_w = torch.clamp(coords_w.float() + 0.5 - d_left.cpu(), min=0).long()
+        l2r_w = torch.clamp(coords_w.float() + 0.5 + d_right.cpu(), max=w - 1).long()
 
         Q = self.bq(self.rb(self.bn(catfea_left))) # B C H W
         # Q = Q - torch.mean(Q, 3).unsqueeze(3).repeat(1, 1, 1, w)
         K = self.bs(self.rb(self.bn(catfea_right)))  # B C H W
         # K = K - torch.mean(K, 3).unsqueeze(3).repeat(1, 1, 1, w)
         # B , C , W// , H//, w_size w_size
+        
         Q_selected = self.patchify(Q[coords_b, :, coords_h, l2r_w], b, c, h, w)
         K_selected = self.patchify(K[coords_b, :, coords_h, r2l_w], b, c, h, w)  # B , C , W//wsize , H//wsize, w_size, w_size
-        Q_selected = Q_selected - Q_selected.mean((4, 5))[..., None, None]
-        K_selected = K_selected - K_selected.mean((4, 5))[..., None, None]
-        score_r2l = self.patchify(Q, b, c, h, w).reshape(-1, w_size * w_size, c) @ K_selected.permute(0, 1, 2, 5, 3, 4).reshape(-1, c, w_size * w_size)
-        score_l2r = self.patchify(K, b, c, h, w).reshape(-1, w_size * w_size, c) @ Q_selected.permute(0, 1, 2, 5, 3, 4).reshape(-1, c, w_size * w_size)
+        Q, K = self.patchify(Q, b, c, h, w), self.patchify(K, b, c, h, w)
+        Q, K = Q - Q.mean((4, 5))[..., None, None], K - K.mean((4, 5))[..., None, None]
+        score_r2l = Q.reshape(-1, w_size * w_size, c) @ K_selected.permute(0, 1, 2, 5, 3, 4).reshape(-1, c, w_size * w_size)
+        score_l2r = K.reshape(-1, w_size * w_size, c) @ Q_selected.permute(0, 1, 2, 5, 3, 4).reshape(-1, c, w_size * w_size)
         # (B*H) * Wl * Wr
         Mr2l = self.softmax(score_r2l)  # B*C*H//*W//, wsize * wsize, wsize * wsize
         Ml2r = self.softmax(score_l2r)  
@@ -240,8 +241,8 @@ class PAM(nn.Module):
         x_rightT = Ml2r @ x_left_selected.reshape(-1, w_size * w_size, c)
         x_leftT = self.unpatchify(x_leftT, b, c, h, w)  # B, C, H , W
         x_rightT = self.unpatchify(x_rightT, b, c, h, w)  # B, C, H , W
-        out_left = x_left  + x_leftT * m_left
-        out_right = x_right + x_rightT * m_right
+        out_left = x_left * (1 - V_left)  + x_leftT * V_left
+        out_right = x_right * (1 - V_right) + x_rightT * V_right
         return out_left, out_right
 
     def flop(self, H, W):
@@ -272,9 +273,9 @@ def M_Relax(M, num_pixels):
 
 
 if __name__ == "__main__":
-    net = Net(upscale_factor=2, input_channel=10)
+    net = Net(upscale_factor=2, input_channel=10, w_size=10)
     total = sum([param.nelement() for param in net.parameters()])
     print('   Number of params: %.2fM' % (total / 1e6))
     print('   FLOPS: %.2fG' % (net.flop(30 , 90) / 1e9))
-    x = torch.randn((2, 10, 10, 30))
+    x = torch.clamp(torch.randn((2, 10, 10, 30)) , min=0.0)
     y = net(x, x , 0)

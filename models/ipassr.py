@@ -310,5 +310,5 @@ if __name__ == "__main__":
     total = sum([param.nelement() for param in net.parameters()])
     print('   Number of params: %.2fM' % (total / 1e6))
     print('   FLOPS: %.2fG' % (net.flop(30 , 90) / 1e9))
-    x = torch.randn((1, 3, 30, 90))
+    x = torch.randn((1, 3, 10, 30))
     y = net(x, x , 0)

@@ -7,18 +7,21 @@ import matplotlib.pyplot as plt
 from skimage import morphology
 from torchvision import transforms
 import torch.utils.checkpoint as checkpoint
-from models.SwinTransformer import SwinAttn, CoSwinAttnBlock, RSTB
+try:
+    from models.SwinTransformer import SwinAttn, CoSwinAttnBlock, RSTB
+except:
+    from SwinTransformer import SwinAttn, CoSwinAttnBlock, RSTB
 from timm.models.layers import trunc_normal_
 
 class Net(nn.Module):
     def __init__(self, upscale_factor, img_size, model, input_channel = 3, w_size = 8,device='cpu'):
         super(Net, self).__init__()
         self.model = model
+        self.w_size = w_size
         self.input_channel = input_channel
         self.upscale_factor = upscale_factor
         self.init_feature = nn.Conv2d(input_channel, 64, 3, 1, 1, bias=True)
         if self.model == 'swin_interleaved':
-            print('im here')
             self.deep_feature = SwinAttnInterleaved(img_size=img_size, window_size=w_size, depths=[6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
         else:
             self.deep_feature= SwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
@@ -28,17 +31,16 @@ class Net(nn.Module):
                 self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
             self.CAlayer = CALayer(128)
             self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
-            self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=[
-                6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
+            self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
         self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
         self.apply(self._init_weights)
 
     def forward(self, x_left, x_right, is_training = 0):
         b, c, h, w = x_left.shape
+        x_left, x_right = self.check_image_size(x_left), self.check_image_size(x_right)
         if c > 3:
             d_left = x_left[:, 3]
             d_right = x_right[:, 3]
-
         x_left_upscale = F.interpolate(x_left[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
         x_right_upscale = F.interpolate(x_right[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
         buffer_left = self.init_feature(x_left)
@@ -96,10 +98,8 @@ class Net(nn.Module):
 
     def check_image_size(self, x):
         _, _, h, w = x.size()
-        mod_pad_h = (self.window_size - h %
-                     self.window_size) % self.window_size
-        mod_pad_w = (self.window_size - w %
-                     self.window_size) % self.window_size
+        mod_pad_h = (self.w_size - h % self.w_size) % self.w_size
+        mod_pad_w = (self.w_size - w % self.w_size) % self.w_size
         x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
         return x
 

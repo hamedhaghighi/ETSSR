@@ -314,9 +314,6 @@ class SwinAttn(nn.Module):
                  use_checkpoint=False, resi_connection='1conv',
                  **kwargs):
         super(SwinAttn, self).__init__()
-        num_in_ch = in_chans
-        num_out_ch = in_chans
-        num_feat = 64
         if in_chans == 3:
             rgb_mean = (0.4488, 0.4371, 0.4040)
             self.mean = torch.Tensor(rgb_mean).view(1, 3, 1, 1)
@@ -360,15 +357,6 @@ class SwinAttn(nn.Module):
        
 
 
-    def check_image_size(self, x):
-        _, _, h, w = x.size()
-        mod_pad_h = (self.window_size - h %
-                     self.window_size) % self.window_size
-        mod_pad_w = (self.window_size - w %
-                     self.window_size) % self.window_size
-        x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
-        return x
-
     def forward(self, x):
 
         x_size = (x.shape[2], x.shape[3])
@@ -376,7 +364,6 @@ class SwinAttn(nn.Module):
         x = self.pre_norm(x) 
         for layer in self.layers:
             x = layer(x, x_size)
-
         x = self.norm(x)  # B L C
         B, HW, C = x.shape
         x = x.transpose(1, 2).view(B, C, x_size[0], x_size[1])
@@ -544,10 +531,10 @@ class CoSwinAttnBlock(nn.Module):
         b, n, c = x_left.shape
 
         coords_b, coords_h, coords_w = torch.meshgrid([torch.arange(b), torch.arange(h), torch.arange(w)], indexing='ij')  # H, W
-        # m_left = ((coords_w.to(self.device) - d_left.long() ) >= 0).unsqueeze(1).int() # B , H , W
-        # m_right = ((coords_w.to(self.device) + d_right.long()) <= w - 1).unsqueeze(1).int() # B , H , W
-        r2l_w = (torch.clamp(coords_w - d_left.long().cpu(), min=0))
-        l2r_w = (torch.clamp(coords_w + d_right.long().cpu(), max=w - 1))
+        # m_left = ((coords_w.to(self.device).float() + 0.5 - d_left ) >= 0).unsqueeze(1).float() # B , H , W
+        # m_right = ((coords_w.to(self.device).float() + 0.5 + d_right.long()) <= w - 1).unsqueeze(1).float() # B , H , W
+        r2l_w = torch.clamp(coords_w.float() + 0.5 - d_left.cpu(), min=0).long()
+        l2r_w = torch.clamp(coords_w.float() + 0.5 + d_right.cpu(), max=w - 1).long()
         # assert L == H * W, "input feature has wrong size"
         shortcut_left , shortcut_right = x_left, x_right
         x_left, x_right = self.norm1(x_left), self.norm1(x_right)
