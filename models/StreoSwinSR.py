@@ -22,22 +22,23 @@ class Net(nn.Module):
         self.upscale_factor = upscale_factor
         self.init_feature = nn.Conv2d(input_channel, 64, 3, 1, 1, bias=True)
         if self.model == 'swin_interleaved':
-            self.deep_feature = SwinAttnInterleaved(img_size=img_size, window_size=w_size, depths=[6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
+            self.deep_feature = SwinAttnInterleaved(img_size=img_size, window_size=w_size, depths=[6, 6], embed_dim=64, num_heads=[8, 8], mlp_ratio=2)
         else:
-            self.deep_feature= SwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
+            self.deep_feature= SwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6], embed_dim=64, num_heads=[8, 8], mlp_ratio=2)
             if model == 'swin_pam':
                 self.co_feature = PAM(64)
             elif model == 'all_swin':
-                self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
+                self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6], embed_dim=64, num_heads=[8, 8], mlp_ratio=2)
             self.CAlayer = CALayer(128)
             self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
-            self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6, 6, 6], embed_dim=64, num_heads=[8, 8, 8, 8], mlp_ratio=2)
+            self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6], embed_dim=64, num_heads=[8, 8], mlp_ratio=2)
         self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
         self.apply(self._init_weights)
 
     def forward(self, x_left, x_right, is_training = 0):
         b, c, h, w = x_left.shape
-        x_left, x_right = self.check_image_size(x_left), self.check_image_size(x_right)
+        x_left, mod_pad_h, mod_pad_w = self.check_image_size(x_left)
+        x_right, _, _  = self.check_image_size(x_right)
         if c > 3:
             d_left = x_left[:, 3]
             d_right = x_right[:, 3]
@@ -62,7 +63,7 @@ class Net(nn.Module):
             buffer_rightF = self.reconstruct(buffer_rightF)
         out_left = self.upscale(buffer_leftF) + x_left_upscale
         out_right = self.upscale(buffer_rightF) + x_right_upscale
-        return out_left, out_right
+        return out_left[..., : -mod_pad_h * self.upscale_factor, : -mod_pad_w * self.upscale_factor], out_right[..., : -mod_pad_h * self.upscale_factor, : -mod_pad_w * self.upscale_factor]
 
     @torch.jit.ignore
     def no_weight_decay(self):
@@ -101,7 +102,7 @@ class Net(nn.Module):
         mod_pad_h = (self.w_size - h % self.w_size) % self.w_size
         mod_pad_w = (self.w_size - w % self.w_size) % self.w_size
         x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
-        return x
+        return x, mod_pad_h, mod_pad_w
 
     def flop(self, H, W):
         N = H * W
