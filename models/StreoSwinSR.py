@@ -8,9 +8,9 @@ from skimage import morphology
 from torchvision import transforms
 import torch.utils.checkpoint as checkpoint
 try:
-    from models.SwinTransformer import SwinAttn, CoSwinAttnBlock, RSTB
-except:
     from SwinTransformer import SwinAttn, CoSwinAttnBlock, RSTB
+except:
+    from models.SwinTransformer import SwinAttn, CoSwinAttnBlock, RSTB
 from timm.models.layers import trunc_normal_
 
 class Net(nn.Module):

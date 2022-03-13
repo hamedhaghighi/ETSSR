@@ -163,7 +163,7 @@ class SwinAttnBlock(nn.Module):
         else:
             attn_mask = None
 
-        self.register_buffer("attn_mask", attn_mask)
+        self.register_buffer("attn_mask", attn_mask, persistent=False)
 
     def calculate_mask(self, x_size):
         # calculate attention mask for SW-MSA
@@ -498,7 +498,7 @@ class CoSwinAttnBlock(nn.Module):
         else:
             attn_mask = None
 
-        self.register_buffer("attn_mask", attn_mask)
+        self.register_buffer("attn_mask", attn_mask, persistent=False)
 
     def calculate_mask(self, x_size):
         # calculate attention mask for SW-MSA

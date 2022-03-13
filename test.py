@@ -4,6 +4,7 @@ from torch.autograd import Variable
 from torch.utils.data import Subset
 import models.ipassr as ipassr
 import models.model as mine
+import models.StreoSwinSR as SSR
 from PIL import Image
 # from torchvision.transforms import ToTensor
 import argparse
@@ -49,12 +50,17 @@ class cfg_parser():
         self.cfg_path = args.cfg
 
 def test(cfg):
-    net = Net(cfg.scale_factor, cfg.input_channel).to(cfg.device)
-    net = mine.Net(cfg.scale_factor, cfg.input_channel, cfg.w_size, cfg.device).to(cfg.device) if cfg.model == 'mine' \
-        else ipassr.Net(cfg.scale_factor, cfg.input_channel).to(cfg.device)
+    IC = cfg.input_channel
+    img_size = tuple([biggest_divisior(cfg.input_resolution[0]), biggest_divisior(cfg.input_resolution[0])])
+    net = mine.Net(cfg.scale_factor, IC, cfg.w_size, cfg.device).to(cfg.device) if cfg.model == 'mine' \
+        else (SSR.Net(cfg.scale_factor, img_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'swin' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
     model_path = os.path.join(cfg.checkpoints_dir, 'modelx' + str(cfg.scale_factor) + '.pth')
     model = torch.load(model_path, map_location={'cuda:0': cfg.device})
-    net.load_state_dict(model['state_dict'])
+    model_state_dict = dict()
+    for k, v in model['state_dict'].items():
+        if 'attn_mask' not in k:
+            model_state_dict[k] = v
+    net.load_state_dict(model_state_dict)
     image_folders = os.listdir()
     root_dir = cfg.data_dir
     for env in os.listdir(root_dir):
