@@ -12,6 +12,7 @@ import os
 from models.model import *
 from dataset import toNdarray, toTensor
 from skimage.measure import compare_psnr, compare_ssim
+from utils import check_input_size
 import matplotlib.pyplot as plt
 import yaml
 import dataset
@@ -52,6 +53,7 @@ class cfg_parser():
 def test(cfg):
     IC = cfg.input_channel
     img_size = tuple([biggest_divisior(cfg.input_resolution[0]), biggest_divisior(cfg.input_resolution[0])])
+    img_size = check_input_size(img_size, cfg.w_size)
     net = mine.Net(cfg.scale_factor, IC, cfg.w_size, cfg.device).to(cfg.device) if cfg.model == 'mine' \
         else (SSR.Net(cfg.scale_factor, img_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'swin' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
     model_path = os.path.join(cfg.checkpoints_dir, 'modelx' + str(cfg.scale_factor) + '.pth')

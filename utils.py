@@ -1,5 +1,6 @@
 import torch
 
+
 def check_disparity(LR_left, LR_right):
     b, c, h, w = LR_left.shape
     d_left = LR_left[0, 3]
@@ -43,3 +44,10 @@ def select_patch(self, tensor, coords_h, coords_w, b_size):
         tensor_padded = F.pad(tensor, (w_size//2, w_size//2, w_size//2, w_size//2))
         tensor_selected = torch.cat([tensor_padded[i: i+1, :,  coords_h[i], coords_w[i]] for i in range(b_size)])  # B , C, H , W , wsize, wsize
         return tensor_selected
+
+
+def check_input_size(input_resolution, w_size):
+    H, W = input_resolution
+    mod_pad_h = w_size - H % w_size
+    mod_pad_w = w_size - W % w_size
+    return tuple([H + mod_pad_h, W + mod_pad_w])

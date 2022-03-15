@@ -10,6 +10,7 @@ import models.StreoSwinSR as SSR
 import dataset
 from visualizer import Logger
 from collections import defaultdict
+from utils import check_input_size
 import torch
 import numpy as np
 import tqdm
@@ -25,7 +26,6 @@ def modify_opt_for_fast_test(opt):
     # opt.print_freq = 1
     # opt.save_latest_freq = 100
     # opt.max_dataset_size = 10
-
 
 
 
@@ -77,8 +77,9 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
 
 def train(train_loader, val_loader, cfg):
     IC = cfg.input_channel
+    input_size = check_input_size(cfg.input_resolution, cfg.w_size)
     net = mine.Net(cfg.scale_factor, IC, cfg.w_size, cfg.device).to(cfg.device) if cfg.model == 'mine' \
-        else (SSR.Net(cfg.scale_factor, tuple(cfg.input_resolution), cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'swin' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
+        else (SSR.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'swin' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
     cudnn.benchmark = True
     scale = cfg.scale_factor
     if cfg.load:

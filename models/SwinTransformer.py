@@ -294,25 +294,22 @@ class RSTB(nn.Module):
 
     def flops(self):
         flops = 0
-        flops += self.residual_group.flops()
+        for block in self.blocks:
+            flops += block.flops()
         H, W = self.input_resolution
         flops += H * W * self.dim * self.dim * 9
-        flops += self.patch_embed.flops()
-        flops += self.patch_unembed.flops()
 
         return flops
 
 
 
-
 class SwinAttn(nn.Module):
 
-    def __init__(self, img_size=64, patch_size=1, in_chans=3,
+    def __init__(self, img_size=64, in_chans=3,
                  embed_dim=96, depths=[6, 6, 6, 6], num_heads=[6, 6, 6, 6],
                  window_size=7, mlp_ratio=4., qkv_bias=True, drop_path_rate=0.1,
-                 norm_layer=nn.LayerNorm, ape=False, patch_norm=True,
-                 use_checkpoint=False, resi_connection='1conv',
-                 **kwargs):
+                 norm_layer=nn.LayerNorm,
+                 use_checkpoint=False):
         super(SwinAttn, self).__init__()
         if in_chans == 3:
             rgb_mean = (0.4488, 0.4371, 0.4040)
@@ -324,8 +321,6 @@ class SwinAttn(nn.Module):
 
         self.num_layers = len(depths)
         self.embed_dim = embed_dim
-        self.ape = ape
-        self.patch_norm = patch_norm
         self.num_features = embed_dim
         self.mlp_ratio = mlp_ratio
 
@@ -368,6 +363,14 @@ class SwinAttn(nn.Module):
         B, HW, C = x.shape
         x = x.transpose(1, 2).view(B, C, x_size[0], x_size[1])
         return x
+
+    def flops(self):
+        flops = 0
+        for layer in self.layers:
+            flops += layer.flops()
+        H, W = self.patches_resolution
+        flops += 2 * H * W * self.embed_dim
+        return flops
 
 
 
@@ -636,14 +639,14 @@ class CoSwinAttnBlock(nn.Module):
         flops = 0
         H, W = self.input_resolution
         # norm1
-        flops += self.dim * H * W
+        flops += 2 * self.dim * H * W
         # W-MSA/SW-MSA
         nW = H * W / self.window_size / self.window_size
-        flops += nW * self.attn.flops(self.window_size * self.window_size)
+        flops += 2 * nW * self.attn.flops(self.window_size * self.window_size)
         # mlp
-        flops += 2 * H * W * self.dim * self.dim * self.mlp_ratio
+        flops += 4 * H * W * self.dim * self.dim * self.mlp_ratio
         # norm2
-        flops += self.dim * H * W
+        flops += 2 * self.dim * H * W
         return flops
 
 

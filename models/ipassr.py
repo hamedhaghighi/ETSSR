@@ -6,6 +6,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from skimage import morphology
 from torchvision import transforms
+import time 
+
 
 class Net(nn.Module):
     def __init__(self, upscale_factor, input_channel = 3):
@@ -281,7 +283,6 @@ class PAM(nn.Module):
     def flop(self, H, W):
         N = H * W
         flop = 0
-        flop += 2 * N * 4 * self.channel
         flop += 2 * self.rb.flop(N)
         flop += 2 * N * self.channel * (4 * self.channel + 1)
         flop += H * (W**2) * self.channel
@@ -306,9 +307,26 @@ def M_Relax(M, num_pixels):
 
 
 if __name__ == "__main__":
-    net = Net(upscale_factor=2)
+    H , W, C = 32, 96 , 10
+    net = Net(upscale_factor=2, input_channel=C).cuda()
+    starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
     print('   Number of params: %.2fM' % (total / 1e6))
-    print('   FLOPS: %.2fG' % (net.flop(30 , 90) / 1e9))
-    x = torch.randn((1, 3, 10, 30))
-    y = net(x, x , 0)
+    print('   FLOPS: %.2fG' % (net.flop(H , W) / 1e9))
+    x = torch.randn((1, 10, H, W)).cuda()
+    exc_time = 0.0
+    n_itr = 100
+    for _ in range(10):
+        _, _ = net(x, x, 0)
+    with torch.no_grad():
+        for _ in range(n_itr):
+            starter.record()
+            _ = net(x, x , 0)
+            ender.record()
+            torch.cuda.synchronize()
+            elps = starter.elapsed_time(ender)
+            exc_time += elps
+            print('################## total: ', elps / 1000, ' #######################')
+
+    print('exec time: ', exc_time / n_itr / 1000)

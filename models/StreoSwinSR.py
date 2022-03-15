@@ -13,6 +13,8 @@ except:
     from models.SwinTransformer import SwinAttn, CoSwinAttnBlock, RSTB
 from timm.models.layers import trunc_normal_
 
+import time
+
 class Net(nn.Module):
     def __init__(self, upscale_factor, img_size, model, input_channel = 3, w_size = 8,device='cpu'):
         super(Net, self).__init__()
@@ -20,11 +22,12 @@ class Net(nn.Module):
         self.w_size = w_size
         self.input_channel = input_channel
         self.upscale_factor = upscale_factor
+        self.img_size = img_size
         self.init_feature = nn.Conv2d(input_channel, 64, 3, 1, 1, bias=True)
         if self.model == 'swin_interleaved':
             self.deep_feature = SwinAttnInterleaved(img_size=img_size, window_size=w_size, depths=[6, 6], embed_dim=64, num_heads=[8, 8], mlp_ratio=2)
         else:
-            self.deep_feature= SwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6], embed_dim=64, num_heads=[8, 8], mlp_ratio=2)
+            self.deep_feature = SwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6], embed_dim=64, num_heads=[8, 8], mlp_ratio=2)
             if model == 'swin_pam':
                 self.co_feature = PAM(64)
             elif model == 'all_swin':
@@ -51,19 +54,19 @@ class Net(nn.Module):
         else:
             buffer_left = self.deep_feature(buffer_left)
             buffer_right = self.deep_feature(buffer_right)
-            
             if self.model == 'swin_pam':
                 buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right)
             elif self.model == 'all_swin':
                 buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right, d_left, d_right)
-
             buffer_leftF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1))
             buffer_rightF = self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
             buffer_leftF = self.reconstruct(buffer_leftF)
             buffer_rightF = self.reconstruct(buffer_rightF)
         out_left = self.upscale(buffer_leftF) + x_left_upscale
         out_right = self.upscale(buffer_rightF) + x_right_upscale
-        return out_left[..., : -mod_pad_h * self.upscale_factor, : -mod_pad_w * self.upscale_factor], out_right[..., : -mod_pad_h * self.upscale_factor, : -mod_pad_w * self.upscale_factor]
+        mod_h = -mod_pad_h * self.upscale_factor if mod_pad_h != 0 else None
+        mod_w = -mod_pad_w * self.upscale_factor if mod_pad_w != 0 else None
+        return out_left[..., :mod_h, :mod_w], out_right[..., :mod_h, :mod_w]
 
     @torch.jit.ignore
     def no_weight_decay(self):
@@ -104,14 +107,23 @@ class Net(nn.Module):
         x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
         return x, mod_pad_h, mod_pad_w
 
-    def flop(self, H, W):
+    def flop(self):
+        H , W = self.img_size
         N = H * W
         flop = 0
+        # init feature
         flop += 2 * ((self.input_channel * 9 + 1) * N * 64) # adding 1 for bias
-        flop += 2 * self.deep_feature.flop(N)
-        flop += self.pam.flop(H, W)
-        flop += 2 * (self.f_RDB.flop(N) + self.CAlayer.flop(N) + N * (128 + 1) * 64)
-        flop += 2 * self.reconstruct.flop(N)
+        if self.model == 'swin_interleaved':
+            flop += self.deep_feature.flops()
+        else:
+            flop += 2 * self.deep_feature.flops()
+            if self.model == 'swin_pam':
+                flop += self.co_feature.flop(H, W)
+            elif self.model == 'all_swin':
+                flop += self.co_feature.flops()
+            flop += 2 * self.deep_feature.flops()
+            flop += 2 * (self.CAlayer.flop(N) + N * (128 + 1) * 64)
+            flop += 2 * self.reconstruct.flops()
         flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2) + (N**self.upscale_factor) * 3 * (64 * 9 + 1))
         return flop
 
@@ -203,11 +215,10 @@ class CoRSTB(nn.Module):
 
     def flops(self):
         flops = 0
-        flops += self.residual_group.flops()
+        for block in self.blocks:
+            flops += block.flops()
         H, W = self.input_resolution
-        flops += H * W * self.dim * self.dim * 9
-        flops += self.patch_embed.flops()
-        flops += self.patch_unembed.flops()
+        flops += 2 * H * W * self.dim * self.dim * 9
 
         return flops
 
@@ -261,7 +272,6 @@ class CoSwinAttn(nn.Module):
             self.layers.append(layer)
         self.norm = norm_layer(self.num_features)
 
-        
 
     def forward(self, x_left, x_right, d_left, d_right):
 
@@ -280,14 +290,22 @@ class CoSwinAttn(nn.Module):
         x_right = x_right.transpose(1, 2).view(B, C, x_size[0], x_size[1])
         return x_left, x_right
 
+    def flops(self):
+        flops = 0
+        for layer in self.layers:
+            flops += layer.flops()
+        H, W = self.patches_resolution
+        flops += 4 * H * W * self.embed_dim
+        return flops
+    
+
 
 class SwinAttnInterleaved(nn.Module):
-    def __init__(self, img_size=64, patch_size=1, in_chans=3,
+    def __init__(self, img_size=64, in_chans=3,
                  embed_dim=96, depths=[6, 6, 6, 6], num_heads=[6, 6, 6, 6],
                  window_size=7, mlp_ratio=4., qkv_bias=True, drop_path_rate=0.1,
                  norm_layer=nn.LayerNorm, ape=False, patch_norm=True,
-                 use_checkpoint=False, resi_connection='1conv',
-                 **kwargs):
+                 use_checkpoint=False):
         super(SwinAttnInterleaved, self).__init__()
         if in_chans == 3:
             rgb_mean = (0.4488, 0.4371, 0.4040)
@@ -365,7 +383,15 @@ class SwinAttnInterleaved(nn.Module):
         x_right = x_right.transpose(1, 2).view(B, C, x_size[0], x_size[1])
         return x_left, x_right
 
-
+    def flops(self):
+        flops = 0
+        for layer in self.disjoint_layers:
+            flops += 2 * layer.flops()
+        for layer in self.merge_layers:
+            flops += layer.flops()
+        H, W = self.patches_resolution
+        flops += 4 * H * W * self.embed_dim
+        return flops
 
 class PAM(nn.Module):
     def __init__(self, channels, device='cpu'):
@@ -404,10 +430,8 @@ class PAM(nn.Module):
         V_left_tanh = torch.tanh(5 * V_left)
         V_right_tanh = torch.tanh(5 * V_right)
 
-        x_leftT = (M_right_to_left @ x_right.permute(0, 2, 3, 1).contiguous().view(-1, w, c)
-                            ).contiguous().view(b, h, w, c).permute(0, 3, 1, 2)                           #  B, C0, H0, W0
-        x_rightT = (M_left_to_right @ x_left.permute(0, 2, 3, 1).contiguous().view(-1, w, c)
-                            ).contiguous().view(b, h, w, c).permute(0, 3, 1, 2)                              #  B, C0, H0, W0
+        x_leftT = (M_right_to_left @ x_right.permute(0, 2, 3, 1).contiguous().view(-1, w, c)).contiguous().view(b, h, w, c).permute(0, 3, 1, 2)                           #  B, C0, H0, W0
+        x_rightT = (M_left_to_right @ x_left.permute(0, 2, 3, 1).contiguous().view(-1, w, c)).contiguous().view(b, h, w, c).permute(0, 3, 1, 2)                              #  B, C0, H0, W0
         out_left = x_left * (1 - V_left_tanh.repeat(1, c, 1, 1)) + x_leftT * V_left_tanh.repeat(1, c, 1, 1)
         out_right = x_right * (1 - V_right_tanh.repeat(1, c, 1, 1)) +  x_rightT * V_right_tanh.repeat(1, c, 1, 1)
         return out_left, out_right
@@ -415,9 +439,8 @@ class PAM(nn.Module):
     def flop(self, H, W):
         N = H * W
         flop = 0
-        flop += 2 * N * 4 * self.channel
         flop += 2 * self.rb.flop(N)
-        flop += 2 * N * self.channel * (4 * self.channel + 1)
+        flop += 2 * N * self.channel * (self.channel + 1)
         flop += H * (W**2) * self.channel
         # flop += 2 * H * W
         flop += 2 * H * (W**2) * self.channel
@@ -441,11 +464,27 @@ def M_Relax(M, num_pixels):
 
 
 if __name__ == "__main__":
-    input_shape = (10, 30)
-    net = Net(upscale_factor=2, img_size=input_shape, model='swin_pam', input_channel=10, w_size=10)
+    input_shape = (32, 96)
+    starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    net = Net(upscale_factor=2, img_size=input_shape, model='swin_pam', input_channel=10, w_size=8).cuda()
+    net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
+    x = torch.clamp(torch.randn((1, 10, input_shape[0], input_shape[1])) , min=0.0).cuda()
     print('   Number of params: %.2fM' % (total / 1e6))
-    # print('   FLOPS: %.2fG' % (net.flop(30 , 90) / 1e9))
-    x = torch.clamp(torch.randn((2, 10, input_shape[0], input_shape[1])) , min=0.0)
-    y_l, y_r = net(x, x , 0)
-    print (y_l.shape)
+    print('   FLOPS: %.2fG' % (net.flop() / 1e9))
+    exc_time = 0.0
+    n_itr = 10
+    for _ in range(10):
+        _, _ = net(x, x, 0)
+    with torch.no_grad():
+        for _ in range(n_itr):
+            starter.record()
+            _, _ = net(x, x , 0)
+            ender.record()
+            torch.cuda.synchronize()
+            elps = starter.elapsed_time(ender)
+            exc_time += elps
+            print('################## total: ', elps / 1000, ' #######################')
+
+    print('exec time: ', exc_time / n_itr / 1000)
+    # print (y_l.shape)
