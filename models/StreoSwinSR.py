@@ -16,26 +16,28 @@ from timm.models.layers import trunc_normal_
 import time
 
 class Net(nn.Module):
-    def __init__(self, upscale_factor, img_size, model, input_channel = 3, w_size = 8,device='cpu'):
+    def __init__(self, upscale_factor, img_size, model, input_channel = 3, w_size = 8, embed_dim =64, device='cpu'):
         super(Net, self).__init__()
         self.model = model
         self.w_size = w_size
         self.input_channel = input_channel
         self.upscale_factor = upscale_factor
         self.img_size = img_size
-        self.init_feature = nn.Conv2d(input_channel, 64, 3, 1, 1, bias=True)
+        self.init_feature = nn.Conv2d(input_channel, embed_dim, 3, 1, 1, bias=True)
+        depths = [6]
+        num_heads = [4]
         if self.model == 'swin_interleaved':
-            self.deep_feature = SwinAttnInterleaved(img_size=img_size, window_size=w_size, depths=[6, 6], embed_dim=64, num_heads=[8, 8], mlp_ratio=2)
+            self.deep_feature = SwinAttnInterleaved(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
         else:
-            self.deep_feature = SwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6], embed_dim=64, num_heads=[8, 8], mlp_ratio=2)
+            self.deep_feature = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
             if model == 'swin_pam':
-                self.co_feature = PAM(64)
+                self.co_feature = PAM(embed_dim)
             elif model == 'all_swin':
-                self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6], embed_dim=64, num_heads=[8, 8], mlp_ratio=2)
-            self.CAlayer = CALayer(128)
-            self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
-            self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=[6, 6], embed_dim=64, num_heads=[8, 8], mlp_ratio=2)
-        self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
+                self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
+            self.CAlayer = CALayer(embed_dim * 2)
+            self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(embed_dim * 2, embed_dim, kernel_size=1, stride=1, padding=0, bias=True))
+            self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
+        self.upscale = nn.Sequential(nn.Conv2d(embed_dim, embed_dim * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(embed_dim, 3, 3, 1, 1, bias=True))
         self.apply(self._init_weights)
 
     def forward(self, x_left, x_right, is_training = 0):

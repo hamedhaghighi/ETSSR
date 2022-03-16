@@ -9,8 +9,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
-import pdb
 
+    
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
@@ -33,8 +33,7 @@ class Mlp(nn.Module):
 def window_partition(x, window_size):
 
     B, H, W, C = x.shape
-    x = x.view(B, H // window_size, window_size,
-               W // window_size, window_size, C)
+    x = x.view(B, H // window_size, window_size, W // window_size, window_size, C)
     windows = x.permute(0, 1, 3, 2, 4, 5).contiguous(
     ).view(-1, window_size, window_size, C)
     return windows
@@ -189,7 +188,7 @@ class SwinAttnBlock(nn.Module):
 
         return attn_mask
 
-    def forward(self, x, x_size, y=None, d_left=None, d_right=None):
+    def forward(self, x, x_size):
         H, W = x_size
         B, L, C = x.shape
         # assert L == H * W, "input feature has wrong size"
@@ -230,7 +229,8 @@ class SwinAttnBlock(nn.Module):
 
         # FFN
         x = shortcut + self.drop_path(x)
-        x = x + self.drop_path(self.mlp(self.norm2(x)))
+        x = self.norm2(x)
+        x = x + self.drop_path(self.mlp(x))
 
         return x
 

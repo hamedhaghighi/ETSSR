@@ -316,7 +316,7 @@ if __name__ == "__main__":
     print('   FLOPS: %.2fG' % (net.flop(H , W) / 1e9))
     x = torch.randn((1, 10, H, W)).cuda()
     exc_time = 0.0
-    n_itr = 100
+    n_itr = 10
     for _ in range(10):
         _, _ = net(x, x, 0)
     with torch.no_grad():
