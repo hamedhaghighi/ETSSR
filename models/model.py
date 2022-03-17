@@ -6,15 +6,26 @@ import numpy as np
 import matplotlib.pyplot as plt
 from skimage import morphology
 from torchvision import transforms
+try:
+    from StreoSwinSR import CoSwinAttn
+except:
+    from models.StreoSwinSR import CoSwinAttn
 
 class Net(nn.Module):
-    def __init__(self, upscale_factor, input_channel = 3, w_size = 8, device='cpu'):
+    def __init__(self, upscale_factor, img_size, model, input_channel=3, w_size=8, device='cpu'):
         super(Net, self).__init__()
         self.input_channel = input_channel
         self.upscale_factor = upscale_factor
+        self.model = model
+        self.w_size = w_size
         self.init_feature = nn.Conv2d(input_channel, 64, 3, 1, 1, bias=True)
         self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=4)
-        self.pam = PAM(64 ,w_size, device)
+        depths = [2]
+        num_heads = [1]
+        if model == 'min_pam':
+            self.pam = PAM(64 ,w_size, device)
+        elif model == 'mine_coswin':
+            self.coswin = CoSwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
         self.f_RDB = RDB(G0=128, C=4, G=32)
         self.CAlayer = CALayer(128)
         self.fusion = nn.Sequential(self.f_RDB, self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
@@ -23,6 +34,8 @@ class Net(nn.Module):
 
 
     def forward(self, x_left, x_right, is_training = 0):
+        x_left, mod_pad_h, mod_pad_w = self.check_image_size(x_left)
+        x_right, _, _ = self.check_image_size(x_right)
         b, c, h, w = x_left.shape
         if c > 3:
             d_left = x_left[:, 3]
@@ -34,7 +47,10 @@ class Net(nn.Module):
         buffer_right = self.init_feature(x_right)
         buffer_left, catfea_left = self.deep_feature(buffer_left)
         buffer_right, catfea_right = self.deep_feature(buffer_right)
-        buffer_leftT, buffer_rightT = self.pam(buffer_left, buffer_right, catfea_left, catfea_right, d_left, d_right)
+        if self.model == 'min_pam':
+            buffer_leftT, buffer_rightT = self.pam(buffer_left, buffer_right, catfea_left, catfea_right, d_left, d_right)
+        elif self.model == 'mine_coswin':
+            buffer_leftT, buffer_rightT = self.coswin(buffer_left, buffer_right, d_left, d_right)
 
         buffer_leftF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1))
         buffer_rightF = self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
@@ -42,7 +58,9 @@ class Net(nn.Module):
         buffer_rightF, _ = self.reconstruct(buffer_rightF)
         out_left = self.upscale(buffer_leftF) + x_left_upscale
         out_right = self.upscale(buffer_rightF) + x_right_upscale
-        return out_left, out_right
+        mod_h = -mod_pad_h * self.upscale_factor if mod_pad_h != 0 else None
+        mod_w = -mod_pad_w * self.upscale_factor if mod_pad_w != 0 else None
+        return out_left[..., :mod_h, :mod_w], out_right[..., :mod_h, :mod_w]
 
     def get_losses(self):
         loss_dict = {k: getattr(self, 'loss_' + k).data.cpu() for k in self.loss_names}
@@ -63,11 +81,23 @@ class Net(nn.Module):
         flop = 0
         flop += 2 * ((self.input_channel * 9 + 1) * N * 64) # adding 1 for bias
         flop += 2 * self.deep_feature.flop(N)
-        flop += self.pam.flop(H, W)
+        if self.model == 'min_pam':
+            flop += self.pam.flop(H, W)
+        elif self.model == 'min_coswin':
+            flop += self.coswin.flops()
         flop += 2 * (self.f_RDB.flop(N) + self.CAlayer.flop(N) + N * (128 + 1) * 64)
         flop += 2 * self.reconstruct.flop(N)
         flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2) + (N**self.upscale_factor) * 3 * (64 * 9 + 1))
         return flop
+
+
+    def check_image_size(self, x):
+            _, _, h, w = x.size()
+            mod_pad_h = (self.w_size - h % self.w_size) % self.w_size
+            mod_pad_w = (self.w_size - w % self.w_size) % self.w_size
+            x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
+            return x, mod_pad_h, mod_pad_w
+
 
 
 
@@ -273,9 +303,27 @@ def M_Relax(M, num_pixels):
 
 
 if __name__ == "__main__":
-    net = Net(upscale_factor=2, input_channel=10, w_size=10)
+    H, W, C = 32, 96, 10
+    net = Net(upscale_factor=2, model='mine_coswin', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
+    starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
     print('   Number of params: %.2fM' % (total / 1e6))
-    print('   FLOPS: %.2fG' % (net.flop(30 , 90) / 1e9))
-    x = torch.clamp(torch.randn((2, 10, 10, 30)) , min=0.0)
-    y = net(x, x , 0)
+    print('   FLOPS: %.2fG' % (net.flop(H, W) / 1e9))
+    x = torch.clamp(torch.randn((1, 10, H, W)) , min=0.0).cuda()
+    exc_time = 0.0
+    n_itr = 100
+    for _ in range(10):
+        _, _ = net(x, x, 0)
+    with torch.no_grad():
+        for _ in range(n_itr):
+            starter.record()
+            _, _ = net(x, x, 0)
+            ender.record()
+            torch.cuda.synchronize()
+            elps = starter.elapsed_time(ender)
+            exc_time += elps
+            print('################## total: ', elps /
+                  1000, ' #######################')
+
+    print('exec time: ', exc_time / n_itr / 1000)

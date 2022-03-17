@@ -78,7 +78,7 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
 def train(train_loader, val_loader, cfg):
     IC = cfg.input_channel
     input_size = check_input_size(cfg.input_resolution, cfg.w_size)
-    net = mine.Net(cfg.scale_factor, IC, cfg.w_size, cfg.device).to(cfg.device) if cfg.model == 'mine' \
+    net = mine.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'mine' in cfg.model\
         else (SSR.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'swin' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
     cudnn.benchmark = True
     scale = cfg.scale_factor

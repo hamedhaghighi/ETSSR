@@ -318,7 +318,7 @@ if __name__ == "__main__":
     exc_time = 0.0
     n_itr = 10
     for _ in range(10):
-        _, _ = net(x, x, 0)
+        _ = net(x, x, 0)
     with torch.no_grad():
         for _ in range(n_itr):
             starter.record()
