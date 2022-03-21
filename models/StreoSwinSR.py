@@ -275,7 +275,7 @@ class CoSwinAttn(nn.Module):
         self.norm = norm_layer(self.num_features)
 
 
-    def forward(self, x_left, x_right, d_left, d_right):
+    def forward(self, x_left, x_right, d_left=None, d_right=None):
 
         x_size = (x_left.shape[2], x_left.shape[3])
         x_left = x_left.flatten(2).transpose(1, 2)

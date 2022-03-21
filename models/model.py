@@ -24,7 +24,7 @@ class Net(nn.Module):
         num_heads = [1]
         if model == 'min_pam':
             self.pam = PAM(64 ,w_size, device)
-        elif model == 'mine_coswin':
+        elif 'mine_coswin' in model:
             self.coswin = CoSwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
         self.f_RDB = RDB(G0=128, C=4, G=32)
         self.CAlayer = CALayer(128)
@@ -51,6 +51,8 @@ class Net(nn.Module):
             buffer_leftT, buffer_rightT = self.pam(buffer_left, buffer_right, catfea_left, catfea_right, d_left, d_right)
         elif self.model == 'mine_coswin':
             buffer_leftT, buffer_rightT = self.coswin(buffer_left, buffer_right, d_left, d_right)
+        elif self.model == 'mine_coswin_wo_d':
+            buffer_leftT, buffer_rightT = self.coswin(buffer_left, buffer_right)
 
         buffer_leftF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1))
         buffer_rightF = self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
