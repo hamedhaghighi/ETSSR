@@ -5,20 +5,23 @@ import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage import morphology
+from utils import disparity_alignment
 from torchvision import transforms
 try:
     from StreoSwinSR import CoSwinAttn
+    from SwinTransformer import SwinAttn
 except:
     from models.StreoSwinSR import CoSwinAttn
+    from models.SwinTransformer import SwinAttn
 
 class Net(nn.Module):
     def __init__(self, upscale_factor, img_size, model, input_channel=3, w_size=8, device='cpu'):
         super(Net, self).__init__()
-        self.input_channel = input_channel
+        self.input_channel = 20 if model == 'mine_seperate' else input_channel
         self.upscale_factor = upscale_factor
         self.model = model
         self.w_size = w_size
-        self.init_feature = nn.Conv2d(input_channel, 64, 3, 1, 1, bias=True)
+        self.init_feature = nn.Conv2d(self.input_channel, 64, 3, 1, 1, bias=True)
         self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=4)
         depths = [2]
         num_heads = [1]
@@ -26,6 +29,8 @@ class Net(nn.Module):
             self.pam = PAM(64 ,w_size, device)
         elif 'mine_coswin' in model:
             self.coswin = CoSwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
+        elif 'mine_seperate' in model:
+            self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
         self.f_RDB = RDB(G0=128, C=4, G=32)
         self.CAlayer = CALayer(128)
         self.fusion = nn.Sequential(self.f_RDB, self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
@@ -43,6 +48,10 @@ class Net(nn.Module):
 
         x_left_upscale = F.interpolate(x_left[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
         x_right_upscale = F.interpolate(x_right[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
+        if self.model == 'mine_seperate':
+            coords_b, coords_h, r2l_w, l2r_w = disparity_alignment(d_left, d_right, b, h, w)
+            x_left_selected , x_right_selected = x_left[coords_b, :, coords_h, l2r_w].permute(0, 3, 1, 2) , x_right[coords_b, :, coords_h, r2l_w].permute(0, 3, 1, 2)
+            x_left, x_right = torch.cat([x_left, x_left_selected], dim = 1), torch.cat([x_right, x_right_selected], dim = 1)
         buffer_left = self.init_feature(x_left)
         buffer_right = self.init_feature(x_right)
         buffer_left, catfea_left = self.deep_feature(buffer_left)
@@ -53,6 +62,8 @@ class Net(nn.Module):
             buffer_leftT, buffer_rightT = self.coswin(buffer_left, buffer_right, d_left, d_right)
         elif self.model == 'mine_coswin_wo_d':
             buffer_leftT, buffer_rightT = self.coswin(buffer_left, buffer_right)
+        elif self.model == 'mine_seperate':
+            buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
 
         buffer_leftF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1))
         buffer_rightF = self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))

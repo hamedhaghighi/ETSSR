@@ -51,3 +51,11 @@ def check_input_size(input_resolution, w_size):
     mod_pad_h = w_size - H % w_size
     mod_pad_w = w_size - W % w_size
     return tuple([H + mod_pad_h, W + mod_pad_w])
+
+def disparity_alignment(d_left, d_right, b, h, w):
+    coords_b, coords_h, coords_w = torch.meshgrid([torch.arange(b), torch.arange(h), torch.arange(w)], indexing='ij')  # H, W
+    # m_left = ((coords_w.to(self.device).float() + 0.5 - d_left ) >= 0).unsqueeze(1).float() # B , H , W
+    # m_right = ((coords_w.to(self.device).float() + 0.5 + d_right.long()) <= w - 1).unsqueeze(1).float() # B , H , W
+    r2l_w = torch.clamp(coords_w.float() + 0.5 - d_left.cpu(), min=0).long() if d_left is not None else None
+    l2r_w = torch.clamp(coords_w.float() + 0.5 + d_right.cpu(), max=w - 1).long() if d_right is not None else None
+    return coords_b, coords_h, r2l_w, l2r_w

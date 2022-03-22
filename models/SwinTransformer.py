@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
-
+from utils import disparity_alignment
     
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
@@ -534,11 +534,7 @@ class CoSwinAttnBlock(nn.Module):
         h, w = x_size
         b, n, c = x_left.shape
         ww = self.window_size * self.window_size
-        coords_b, coords_h, coords_w = torch.meshgrid([torch.arange(b), torch.arange(h), torch.arange(w)], indexing='ij')  # H, W
-        # m_left = ((coords_w.to(self.device).float() + 0.5 - d_left ) >= 0).unsqueeze(1).float() # B , H , W
-        # m_right = ((coords_w.to(self.device).float() + 0.5 + d_right.long()) <= w - 1).unsqueeze(1).float() # B , H , W
-        r2l_w = torch.clamp(coords_w.float() + 0.5 - d_left.cpu(), min=0).long() if d_left else None
-        l2r_w = torch.clamp(coords_w.float() + 0.5 + d_right.cpu(), max=w - 1).long() if d_right else None
+        coords_b, coords_h, r2l_w, l2r_w = disparity_alignment(d_left, d_right, b, h, w)
         # assert L == H * W, "input feature has wrong size"
         shortcut_left , shortcut_right = x_left, x_right
 
