@@ -27,9 +27,9 @@ class Net(nn.Module):
         num_heads = [1]
         if model == 'min_pam':
             self.pam = PAM(64 ,w_size, device)
-        elif 'mine_coswin' in model:
+        elif any(x in model for x in ['mine_coswin', 'mine_late_fusion']):
             self.coswin = CoSwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
-        elif 'mine_seperate' in model:
+        elif any(x in model for x in ['mine_seperate', 'mine_independent']):
             self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
         self.f_RDB = RDB(G0=128, C=4, G=32)
         self.CAlayer = CALayer(128)
@@ -50,7 +50,7 @@ class Net(nn.Module):
         x_right_upscale = F.interpolate(x_right[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
         if self.model == 'mine_seperate':
             coords_b, coords_h, r2l_w, l2r_w = disparity_alignment(d_left, d_right, b, h, w)
-            x_left_selected , x_right_selected = x_left[coords_b, :, coords_h, l2r_w].permute(0, 3, 1, 2) , x_right[coords_b, :, coords_h, r2l_w].permute(0, 3, 1, 2)
+            x_left_selected , x_right_selected = x_left[coords_b, :, coords_h, l2r_w].permute(0, 3, 1, 2) ,x_right[coords_b, :, coords_h, r2l_w].permute(0, 3, 1, 2)
             x_left, x_right = torch.cat([x_left, x_left_selected], dim = 1), torch.cat([x_right, x_right_selected], dim = 1)
         buffer_left = self.init_feature(x_left)
         buffer_right = self.init_feature(x_right)
@@ -62,13 +62,17 @@ class Net(nn.Module):
             buffer_leftT, buffer_rightT = self.coswin(buffer_left, buffer_right, d_left, d_right)
         elif self.model == 'mine_coswin_wo_d':
             buffer_leftT, buffer_rightT = self.coswin(buffer_left, buffer_right)
-        elif self.model == 'mine_seperate':
+        elif any(x in self.model for x in ['mine_seperate', 'mine_independent']):
             buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
-
-        buffer_leftF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1))
-        buffer_rightF = self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
+        if self.model == 'mine_late_fusion':
+            buffer_leftF, buffer_rightF = buffer_left, buffer_right
+        else:
+            buffer_leftF, buffer_rightF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1)), self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
+        
         buffer_leftF, _ = self.reconstruct(buffer_leftF)
         buffer_rightF, _ = self.reconstruct(buffer_rightF)
+        if self.model == 'mine_late_fusion':
+            buffer_leftF, buffer_rightF = self.coswin(buffer_leftF, buffer_rightF, d_left, d_right)
         out_left = self.upscale(buffer_leftF) + x_left_upscale
         out_right = self.upscale(buffer_rightF) + x_right_upscale
         mod_h = -mod_pad_h * self.upscale_factor if mod_pad_h != 0 else None

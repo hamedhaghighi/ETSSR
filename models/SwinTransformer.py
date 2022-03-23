@@ -541,7 +541,7 @@ class CoSwinAttnBlock(nn.Module):
         def norm_view_selection(x, w_ind):
             x = self.norm1(x)
             x = x.view(b, h, w, c)
-            x_selected = x[coords_b, coords_h, w_ind].clone() if w_ind else x
+            x_selected = x[coords_b, coords_h, w_ind].clone() if w_ind is not None else x
             return x, x_selected
             
         x_left, x_left_selected = norm_view_selection(x_left, l2r_w)
