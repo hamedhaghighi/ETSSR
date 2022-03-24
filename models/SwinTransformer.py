@@ -489,13 +489,18 @@ class CoSwinAttnBlock(nn.Module):
             self.window_size = min(self.input_resolution)
         assert 0 <= self.shift_size < self.window_size, "shift_size must in 0-window_size"
 
-        self.norm1 = norm_layer(dim)
-        self.attn = CoWindowAttention(dim, window_size=to_2tuple(self.window_size), num_heads=num_heads, qkv_bias=qkv_bias, proj_drop=drop)
+        self.norm1_l = norm_layer(dim)
+        self.norm1_r = norm_layer(dim)
+        self.attn_l = CoWindowAttention(dim, window_size=to_2tuple(self.window_size), num_heads=num_heads, qkv_bias=qkv_bias, proj_drop=drop)
+        self.attn_r = CoWindowAttention(dim, window_size=to_2tuple(self.window_size), num_heads=num_heads, qkv_bias=qkv_bias, proj_drop=drop)
 
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-        self.norm2 = norm_layer(dim)
+        self.drop_path_l = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.drop_path_r = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.norm2_l = norm_layer(dim)
+        self.norm2_r = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim,act_layer=act_layer, drop=drop)
+        self.mlp_l = Mlp(in_features=dim, hidden_features=mlp_hidden_dim,act_layer=act_layer, drop=drop)
+        self.mlp_r = Mlp(in_features=dim, hidden_features=mlp_hidden_dim,act_layer=act_layer, drop=drop)
 
         if self.shift_size > 0:
             attn_mask = self.calculate_mask(self.input_resolution)
@@ -538,14 +543,14 @@ class CoSwinAttnBlock(nn.Module):
         # assert L == H * W, "input feature has wrong size"
         shortcut_left , shortcut_right = x_left, x_right
 
-        def norm_view_selection(x, w_ind):
-            x = self.norm1(x)
+        def norm_view_selection(x, w_ind, stream):
+            x = self.norm1_l(x) if stream == 'l' else self.norm1_r(x)
             x = x.view(b, h, w, c)
             x_selected = x[coords_b, coords_h, w_ind].clone() if w_ind is not None else x
             return x, x_selected
             
-        x_left, x_left_selected = norm_view_selection(x_left, l2r_w)
-        x_right, x_right_selected = norm_view_selection(x_right, r2l_w)
+        x_left, x_left_selected = norm_view_selection(x_left, l2r_w, 'l')
+        x_right, x_right_selected = norm_view_selection(x_right, r2l_w, 'r')
 
         def shift_partition_view(x):
             x = torch.roll(x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2)) if self.shift_size > 0 else x
@@ -555,8 +560,8 @@ class CoSwinAttnBlock(nn.Module):
         x_left_selected_windows , x_right_selected_windows = shift_partition_view(x_left_selected), shift_partition_view(x_right_selected)
         # W-MSA/SW-MSA (to be compatible for testing on images whose shapes are the multiple of window size
         attn_mask = self.attn_mask if self.input_resolution == x_size else self.calculate_mask(x_size).to(x_left.device)
-        x_leftT, attn_r2l = self.attn(x_left_windows, x_right_selected_windows, mask=attn_mask)
-        x_rightT, attn_l2r = self.attn(x_right_windows, x_left_selected_windows, mask=attn_mask)
+        x_leftT, attn_r2l = self.attn_l(x_left_windows, x_right_selected_windows, mask=attn_mask)
+        x_rightT, attn_l2r = self.attn_r(x_right_windows, x_left_selected_windows, mask=attn_mask)
 
         def create_apply_mask(attn1, attn2):
             M_relaxed = self.M_Relax(attn1, num_pixels=2)
@@ -575,16 +580,16 @@ class CoSwinAttnBlock(nn.Module):
         out_left = matmul_mask(x_left_windows, (1 - m_left)) + matmul_mask(x_leftT, m_left)
         out_right = matmul_mask(x_right_windows, (1 - m_right)) + matmul_mask(x_rightT, m_right)
 
-        def view_reverse_drop_mlp(x, shortcut):
+        def view_reverse_drop_mlp(x, shortcut, stream):
             x = x.view(-1, self.window_size, self.window_size, c)
             x = window_reverse(x, self.window_size, h, w)  # B H' W' C
             x = torch.roll(x, shifts=(self.shift_size, self.shift_size), dims=(1, 2)) if self.shift_size > 0 else x
             x = x.view(b, n, c)
-            x = shortcut + self.drop_path(x)
-            x = x + self.drop_path(self.mlp(self.norm2(x)))
+            x = shortcut + (self.drop_path_l(x) if stream == 'l' else self.drop_path_r(x))
+            x = x + (self.drop_path_l(self.mlp_l(self.norm2_l(x))) if stream == 'l' else self.drop_path_r(self.mlp_r(self.norm2_r(x))))
             return x
 
-        x_left , x_right = view_reverse_drop_mlp(out_left, shortcut_left), view_reverse_drop_mlp(out_right, shortcut_right)
+        x_left , x_right = view_reverse_drop_mlp(out_left, shortcut_left, 'l'), view_reverse_drop_mlp(out_right, shortcut_right, 'r')
 
         return x_left, x_right
 

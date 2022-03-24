@@ -21,8 +21,10 @@ class Net(nn.Module):
         self.upscale_factor = upscale_factor
         self.model = model
         self.w_size = w_size
-        self.init_feature = nn.Conv2d(self.input_channel, 64, 3, 1, 1, bias=True)
-        self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=4)
+        self.init_feature_l = nn.Conv2d(self.input_channel, 64, 3, 1, 1, bias=True)
+        self.init_feature_r = nn.Conv2d(self.input_channel, 64, 3, 1, 1, bias=True)
+        self.deep_feature_l = RDG(G0=64, C=4, G=24, n_RDB=4)
+        self.deep_feature_r = RDG(G0=64, C=4, G=24, n_RDB=4)
         depths = [2]
         num_heads = [1]
         if model == 'min_pam':
@@ -30,12 +32,16 @@ class Net(nn.Module):
         elif any(x in model for x in ['mine_coswin', 'mine_late_fusion']):
             self.coswin = CoSwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
         elif any(x in model for x in ['mine_seperate', 'mine_independent']):
-            self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
-        self.f_RDB = RDB(G0=128, C=4, G=32)
-        self.CAlayer = CALayer(128)
-        self.fusion = nn.Sequential(self.f_RDB, self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
-        self.reconstruct = RDG(G0=64, C=4, G=24, n_RDB=4)
-        self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
+            self.swin_l = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
+            self.swin_r = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
+        self.f_RDB_l, self.f_RDB_r = RDB(G0=128, C=4, G=32),RDB(G0=128, C=4, G=32)
+        self.CAlayer_l, self.CAlayer_r = CALayer(128), CALayer(128)
+        self.fusion_l = nn.Sequential(self.f_RDB_l, self.CAlayer_l, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
+        self.fusion_r = nn.Sequential(self.f_RDB_r, self.CAlayer_r, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
+        self.reconstruct_l = RDG(G0=64, C=4, G=24, n_RDB=4)
+        self.reconstruct_r = RDG(G0=64, C=4, G=24, n_RDB=4)
+        self.upscale_l = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
+        self.upscale_r = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
 
 
     def forward(self, x_left, x_right, is_training = 0):
@@ -52,10 +58,10 @@ class Net(nn.Module):
             coords_b, coords_h, r2l_w, l2r_w = disparity_alignment(d_left, d_right, b, h, w)
             x_left_selected , x_right_selected = x_left[coords_b, :, coords_h, l2r_w].permute(0, 3, 1, 2) ,x_right[coords_b, :, coords_h, r2l_w].permute(0, 3, 1, 2)
             x_left, x_right = torch.cat([x_left, x_left_selected], dim = 1), torch.cat([x_right, x_right_selected], dim = 1)
-        buffer_left = self.init_feature(x_left)
-        buffer_right = self.init_feature(x_right)
-        buffer_left, catfea_left = self.deep_feature(buffer_left)
-        buffer_right, catfea_right = self.deep_feature(buffer_right)
+        buffer_left = self.init_feature_l(x_left)
+        buffer_right = self.init_feature_r(x_right)
+        buffer_left, catfea_left = self.deep_feature_l(buffer_left)
+        buffer_right, catfea_right = self.deep_feature_r(buffer_right)
         if self.model == 'min_pam':
             buffer_leftT, buffer_rightT = self.pam(buffer_left, buffer_right, catfea_left, catfea_right, d_left, d_right)
         elif self.model == 'mine_coswin':
@@ -63,18 +69,18 @@ class Net(nn.Module):
         elif self.model == 'mine_coswin_wo_d':
             buffer_leftT, buffer_rightT = self.coswin(buffer_left, buffer_right)
         elif any(x in self.model for x in ['mine_seperate', 'mine_independent']):
-            buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
+            buffer_leftT, buffer_rightT = self.swin_l(buffer_left), self.swin_r(buffer_right)
         if self.model == 'mine_late_fusion':
             buffer_leftF, buffer_rightF = buffer_left, buffer_right
         else:
-            buffer_leftF, buffer_rightF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1)), self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
+            buffer_leftF, buffer_rightF = self.fusion_l(torch.cat([buffer_left, buffer_leftT], dim=1)), self.fusion_r(torch.cat([buffer_right, buffer_rightT], dim=1))
         
-        buffer_leftF, _ = self.reconstruct(buffer_leftF)
-        buffer_rightF, _ = self.reconstruct(buffer_rightF)
+        buffer_leftF, _ = self.reconstruct_l(buffer_leftF)
+        buffer_rightF, _ = self.reconstruct_r(buffer_rightF)
         if self.model == 'mine_late_fusion':
             buffer_leftF, buffer_rightF = self.coswin(buffer_leftF, buffer_rightF, d_left, d_right)
-        out_left = self.upscale(buffer_leftF) + x_left_upscale
-        out_right = self.upscale(buffer_rightF) + x_right_upscale
+        out_left = self.upscale_l(buffer_leftF) + x_left_upscale
+        out_right = self.upscale_r(buffer_rightF) + x_right_upscale
         mod_h = -mod_pad_h * self.upscale_factor if mod_pad_h != 0 else None
         mod_w = -mod_pad_w * self.upscale_factor if mod_pad_w != 0 else None
         return out_left[..., :mod_h, :mod_w], out_right[..., :mod_h, :mod_w]

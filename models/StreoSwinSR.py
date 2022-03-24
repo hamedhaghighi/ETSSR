@@ -197,7 +197,8 @@ class CoRSTB(nn.Module):
                           norm_layer=norm_layer)
             for i in range(depth)])
 
-        self.conv = nn.Conv2d(dim, dim, 3, 1, 1)
+        self.conv_l = nn.Conv2d(dim, dim, 3, 1, 1)
+        self.conv_r = nn.Conv2d(dim, dim, 3, 1, 1)
 
     def forward(self, x_left, x_right, d_left, d_right, x_size):
         out_left = x_left
@@ -209,8 +210,8 @@ class CoRSTB(nn.Module):
                 x_left, x_right = blk(x_left, x_right, d_left, d_right, x_size)
         x_left = x_left.transpose(1, 2).view(-1, self.dim, x_size[0], x_size[1])
         x_right = x_right.transpose(1, 2).view(-1, self.dim, x_size[0], x_size[1])
-        x_left = self.conv(x_left)
-        x_right = self.conv(x_right)
+        x_left = self.conv_l(x_left)
+        x_right = self.conv_r(x_right)
         x_left = x_left.flatten(2).transpose(1, 2)
         x_right = x_right.flatten(2).transpose(1, 2)
         return x_left + out_left, x_right + out_right
@@ -250,7 +251,8 @@ class CoSwinAttn(nn.Module):
 
         patches_resolution = [img_size[0], img_size[1]]
         self.patches_resolution = patches_resolution
-        self.pre_norm = norm_layer(embed_dim)
+        self.pre_norm_l = norm_layer(embed_dim)
+        self.pre_norm_r = norm_layer(embed_dim)
 
         # stochastic depth
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
@@ -272,7 +274,8 @@ class CoSwinAttn(nn.Module):
                          use_checkpoint=use_checkpoint
                          )
             self.layers.append(layer)
-        self.norm = norm_layer(self.num_features)
+        self.norm_l = norm_layer(self.num_features)
+        self.norm_r = norm_layer(self.num_features)
 
 
     def forward(self, x_left, x_right, d_left=None, d_right=None):
@@ -280,13 +283,13 @@ class CoSwinAttn(nn.Module):
         x_size = (x_left.shape[2], x_left.shape[3])
         x_left = x_left.flatten(2).transpose(1, 2)
         x_right = x_right.flatten(2).transpose(1, 2)
-        x_left = self.pre_norm(x_left)
-        x_right = self.pre_norm(x_right)
+        x_left = self.pre_norm_l(x_left)
+        x_right = self.pre_norm_r(x_right)
         for layer in self.layers:
             x_left, x_right = layer(x_left, x_right, d_left, d_right, x_size)
 
-        x_left = self.norm(x_left)  # B L C
-        x_right = self.norm(x_right)
+        x_left = self.norm_l(x_left)  # B L C
+        x_right = self.norm_r(x_right)
         B, HW, C = x_left.shape
         x_left = x_left.transpose(1, 2).view(B, C, x_size[0], x_size[1])
         x_right = x_right.transpose(1, 2).view(B, C, x_size[0], x_size[1])
