@@ -1,3 +1,4 @@
+from async_timeout import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -5,9 +6,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from skimage import morphology
 from torchvision import transforms
+sys.path.append('/home/oem/Documents/PhD_proj/iPASSR')
 from utils import disparity_alignment
 from models.StreoSwinSR import CoSwinAttn
 from models.SwinTransformer import SwinAttn
+
 
 class Net(nn.Module):
     def __init__(self, upscale_factor, img_size, model, input_channel=3, w_size=8, device='cpu'):
@@ -376,7 +379,10 @@ def M_Relax(M, num_pixels):
     return M_relaxed
 
 
-if __name__ == "models.model":
+if __name__ == "__main__":
+    # from utils import disparity_alignment
+    # from StreoSwinSR import CoSwinAttn
+    # from SwinTransformer import SwinAttn
     H, W, C = 32, 96, 10
     net = Net(upscale_factor=2, model='mine_coswin_rpm', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
