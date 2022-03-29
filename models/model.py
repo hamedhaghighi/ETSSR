@@ -1,4 +1,4 @@
-from async_timeout import sys
+import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
