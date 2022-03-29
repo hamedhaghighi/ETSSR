@@ -1,40 +1,36 @@
-from tkinter import N
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
 from skimage import morphology
-from utils import disparity_alignment
 from torchvision import transforms
-try:
-    from StreoSwinSR import CoSwinAttn
-    from SwinTransformer import SwinAttn
-except:
-    from models.StreoSwinSR import CoSwinAttn
-    from models.SwinTransformer import SwinAttn
+from utils import disparity_alignment
+from models.StreoSwinSR import CoSwinAttn
+from models.SwinTransformer import SwinAttn
 
 class Net(nn.Module):
     def __init__(self, upscale_factor, img_size, model, input_channel=3, w_size=8, device='cpu'):
         super(Net, self).__init__()
-        self.input_channel = 20 if model == 'mine_seperate' else input_channel
+        self.input_channel = 20 if 'seperate' in model else input_channel
         self.upscale_factor = upscale_factor
         self.model = model
         self.w_size = w_size
         self.init_feature = nn.Conv2d(self.input_channel, 64, 3, 1, 1, bias=True)
-        self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=4)
+        self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=4, type='P' if 'rpm' in model else 'N')
         depths = [2]
         num_heads = [1]
-        if model == 'min_pam':
+        if 'pam' in model :
             self.pam = PAM(64 ,w_size, device)
-        elif any(x in model for x in ['mine_coswin', 'mine_late_fusion']):
-            self.coswin = CoSwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
-        elif any(x in model for x in ['mine_seperate', 'mine_independent']):
+        elif any(x in model for x in ['coswin', 'late_fusion']):
+            self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=[1], embed_dim=64, num_heads=num_heads, mlp_ratio=2)
+            self.coswin = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[1], embed_dim=64, num_heads=num_heads, mlp_ratio=2)
+        elif any(x in model for x in ['seperate', 'independent']):
             self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
-        self.f_RDB = RDB(G0=128, C=4, G=32)
+        self.f_RDB = PRDB(G0=128, C=4, G=32) if 'rpm' in model else RDB(G0=128, C=4, G=32)
         self.CAlayer = CALayer(128)
         self.fusion = nn.Sequential(self.f_RDB, self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
-        self.reconstruct = RDG(G0=64, C=4, G=24, n_RDB=4)
+        self.reconstruct = RDG(G0=64, C=4, G=24, n_RDB=4, type='P' if 'rpm' in model else 'N')
         self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
 
 
@@ -48,7 +44,7 @@ class Net(nn.Module):
 
         x_left_upscale = F.interpolate(x_left[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
         x_right_upscale = F.interpolate(x_right[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
-        if self.model == 'mine_seperate':
+        if 'seperate' in self.model:
             coords_b, coords_h, r2l_w, l2r_w = disparity_alignment(d_left, d_right, b, h, w)
             x_left_selected , x_right_selected = x_left[coords_b, :, coords_h, l2r_w].permute(0, 3, 1, 2) ,x_right[coords_b, :, coords_h, r2l_w].permute(0, 3, 1, 2)
             x_left, x_right = torch.cat([x_left, x_left_selected], dim = 1), torch.cat([x_right, x_right_selected], dim = 1)
@@ -56,22 +52,24 @@ class Net(nn.Module):
         buffer_right = self.init_feature(x_right)
         buffer_left, catfea_left = self.deep_feature(buffer_left)
         buffer_right, catfea_right = self.deep_feature(buffer_right)
-        if self.model == 'min_pam':
+        if 'pam' in self.model:
             buffer_leftT, buffer_rightT = self.pam(buffer_left, buffer_right, catfea_left, catfea_right, d_left, d_right)
-        elif self.model == 'mine_coswin':
-            buffer_leftT, buffer_rightT = self.coswin(buffer_left, buffer_right, d_left, d_right)
-        elif self.model == 'mine_coswin_wo_d':
-            buffer_leftT, buffer_rightT = self.coswin(buffer_left, buffer_right)
-        elif any(x in self.model for x in ['mine_seperate', 'mine_independent']):
+        elif 'coswin' in self.model:
             buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
-        if self.model == 'mine_late_fusion':
+            buffer_leftT, buffer_rightT = self.coswin(buffer_leftT, buffer_rightT, d_left, d_right)
+        elif 'coswin_wo_d' in self.model:
+            buffer_leftT, buffer_rightT = self.coswin(buffer_left, buffer_right)
+        elif any(x in self.model for x in ['seperate', 'independent']):
+            buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
+        if 'mine_late_fusion' in self.model:
             buffer_leftF, buffer_rightF = buffer_left, buffer_right
         else:
             buffer_leftF, buffer_rightF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1)), self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
         
         buffer_leftF, _ = self.reconstruct(buffer_leftF)
         buffer_rightF, _ = self.reconstruct(buffer_rightF)
-        if self.model == 'mine_late_fusion':
+        if 'late_fusion' in self.model:
+            buffer_leftF, buffer_rightF = self.swin(buffer_leftF), self.swin(buffer_rightF)
             buffer_leftF, buffer_rightF = self.coswin(buffer_leftF, buffer_rightF, d_left, d_right)
         out_left = self.upscale(buffer_leftF) + x_left_upscale
         out_right = self.upscale(buffer_rightF) + x_right_upscale
@@ -156,13 +154,16 @@ class RDB(nn.Module):
 
 
 class RDG(nn.Module):
-    def __init__(self, G0, C, G, n_RDB):
+    def __init__(self, G0, C, G, n_RDB, type='N'):
         super(RDG, self).__init__()
         self.n_RDB = n_RDB
         self.G0 = G0
         self.RDBs = []
         for i in range(n_RDB):
-            self.RDBs.append(RDB(G0, C, G))
+            if type == 'N':
+                self.RDBs.append(RDB(G0, C, G))
+            elif type == 'P':
+                self.RDBs.append(PRDB(G0, C, G))
         self.RDB = nn.Sequential(*self.RDBs)
         self.conv = nn.Conv2d(G0*n_RDB, G0, kernel_size=1, stride=1, padding=0, bias=True)
 
@@ -181,6 +182,62 @@ class RDG(nn.Module):
         flop += len(self.RDBs) * self.RDBs[0].flop(N)
         flop += N * (self.n_RDB * self.G0 + 1) * self.G0
         return flop
+
+
+class P_one_conv(nn.Module):
+    def __init__(self, G0, G):
+        super(P_one_conv, self).__init__()
+        self.G0, self.G = G0, G
+        self.conv = nn.Conv2d(G0, G, kernel_size=3,stride=1, padding=1, bias=True)
+        self.relu = nn.LeakyReLU(0.1, inplace=True)
+
+    def forward(self, x):
+        x = self.relu(self.conv(x))
+        return x
+
+    def flop(self, N):
+        flop = N * (self.G0 * 9 + 1) * self.G
+        return flop
+
+
+
+class PRDB(nn.Module):
+    def __init__(self, G0, C, G):
+        super(PRDB, self).__init__()
+        self.G0, self.G, self.C = G0, G, C
+        self.s_r = 2 # split_ratio
+        self.convs = []
+        for i in range(C):
+            self.convs.append(P_one_conv((G0 + i * G)*(self.s_r - 1) // self.s_r, G))
+        self.convs = nn.ModuleList(self.convs)
+        self.LFF = nn.Conv2d(G0 + C*G, G0, kernel_size=1, stride=1, padding=0, bias=True)
+
+    def forward(self, x):
+        shortcut = x
+        output_list = []
+        out_size = self.G // self.s_r
+        output_list.append(x)
+        _, x = torch.split(x, (x.shape[1] // self.s_r, x.shape[1] * (self.s_r - 1)// self.s_r), dim=1)
+
+        for conv in self.convs:
+            output = conv(x)
+            output_list.append(output)
+            _ , output = torch.split(output, (out_size, self.G - out_size), dim=1)
+            x = torch.cat([x, output], dim=1)
+
+        out = torch.cat(output_list, dim=1)
+        lff = self.LFF(out)
+        return lff + shortcut
+
+    def flop(self, N):
+        flop = 0
+        for cv in self.convs:
+            flop += cv.flop(N)
+        flop += N * (self.G0 + self.C*self.G + 1) * self.G0
+        return flop
+
+
+
 
 
 class CALayer(nn.Module):
@@ -319,28 +376,28 @@ def M_Relax(M, num_pixels):
     return M_relaxed
 
 
-if __name__ == "__main__":
-    H, W, C = 32, 96, 10
-    net = Net(upscale_factor=2, model='mine_coswin', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
-    starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-    net.train(False)
-    total = sum([param.nelement() for param in net.parameters()])
-    print('   Number of params: %.2fM' % (total / 1e6))
-    print('   FLOPS: %.2fG' % (net.flop(H, W) / 1e9))
-    x = torch.clamp(torch.randn((1, 10, H, W)) , min=0.0).cuda()
-    exc_time = 0.0
-    n_itr = 100
-    for _ in range(10):
+# if __name__ == "__main__":
+H, W, C = 32, 96, 10
+net = Net(upscale_factor=2, model='mine_coswin_rpm', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
+starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+net.train(False)
+total = sum([param.nelement() for param in net.parameters()])
+print('   Number of params: %.2fM' % (total / 1e6))
+print('   FLOPS: %.2fG' % (net.flop(H, W) / 1e9))
+x = torch.clamp(torch.randn((1, 10, H, W)) , min=0.0).cuda()
+exc_time = 0.0
+n_itr = 100
+for _ in range(10):
+    _, _ = net(x, x, 0)
+with torch.no_grad():
+    for _ in range(n_itr):
+        starter.record()
         _, _ = net(x, x, 0)
-    with torch.no_grad():
-        for _ in range(n_itr):
-            starter.record()
-            _, _ = net(x, x, 0)
-            ender.record()
-            torch.cuda.synchronize()
-            elps = starter.elapsed_time(ender)
-            exc_time += elps
-            print('################## total: ', elps /
-                  1000, ' #######################')
+        ender.record()
+        torch.cuda.synchronize()
+        elps = starter.elapsed_time(ender)
+        exc_time += elps
+        print('################## total: ', elps /
+                1000, ' #######################')
 
-    print('exec time: ', exc_time / n_itr / 1000)
+print('exec time: ', exc_time / n_itr / 1000)
