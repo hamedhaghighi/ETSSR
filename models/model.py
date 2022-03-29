@@ -205,7 +205,7 @@ class PRDB(nn.Module):
     def __init__(self, G0, C, G):
         super(PRDB, self).__init__()
         self.G0, self.G, self.C = G0, G, C
-        self.s_r = 2 # split_ratio
+        self.s_r = 4 # split_ratio
         self.convs = []
         for i in range(C):
             self.convs.append(P_one_conv((G0 + i * G)*(self.s_r - 1) // self.s_r, G))
@@ -376,28 +376,28 @@ def M_Relax(M, num_pixels):
     return M_relaxed
 
 
-# if __name__ == "__main__":
-H, W, C = 32, 96, 10
-net = Net(upscale_factor=2, model='mine_coswin_rpm', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
-starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-net.train(False)
-total = sum([param.nelement() for param in net.parameters()])
-print('   Number of params: %.2fM' % (total / 1e6))
-print('   FLOPS: %.2fG' % (net.flop(H, W) / 1e9))
-x = torch.clamp(torch.randn((1, 10, H, W)) , min=0.0).cuda()
-exc_time = 0.0
-n_itr = 100
-for _ in range(10):
-    _, _ = net(x, x, 0)
-with torch.no_grad():
-    for _ in range(n_itr):
-        starter.record()
+if __name__ == "models.model":
+    H, W, C = 32, 96, 10
+    net = Net(upscale_factor=2, model='mine_coswin_rpm', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
+    starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    net.train(False)
+    total = sum([param.nelement() for param in net.parameters()])
+    print('   Number of params: %.2fM' % (total / 1e6))
+    print('   FLOPS: %.2fG' % (net.flop(H, W) / 1e9))
+    x = torch.clamp(torch.randn((1, 10, H, W)) , min=0.0).cuda()
+    exc_time = 0.0
+    n_itr = 100
+    for _ in range(10):
         _, _ = net(x, x, 0)
-        ender.record()
-        torch.cuda.synchronize()
-        elps = starter.elapsed_time(ender)
-        exc_time += elps
-        print('################## total: ', elps /
-                1000, ' #######################')
+    with torch.no_grad():
+        for _ in range(n_itr):
+            starter.record()
+            _, _ = net(x, x, 0)
+            ender.record()
+            torch.cuda.synchronize()
+            elps = starter.elapsed_time(ender)
+            exc_time += elps
+            print('################## total: ', elps /
+                    1000, ' #######################')
 
-print('exec time: ', exc_time / n_itr / 1000)
+    print('exec time: ', exc_time / n_itr / 1000)
