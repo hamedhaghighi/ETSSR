@@ -4,8 +4,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
-from skimage import morphology
-from torchvision import transforms
 sys.path.append('/home/oem/Documents/PhD_proj/iPASSR')
 from utils import disparity_alignment
 from models.StreoSwinSR import CoSwinAttn
@@ -20,7 +18,7 @@ class Net(nn.Module):
         self.model = model
         self.w_size = w_size
         self.init_feature = nn.Conv2d(self.input_channel, 64, 3, 1, 1, bias=True)
-        self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=4, type='P' if 'rpm' in model else 'N')
+        self.deep_feature = RDG(G0=64, C=2, G=24, n_RDB=2, type='P') if 'rpm' in model else RDG(G0=64, C=4, G=24, n_RDB=4, type='N')
         depths = [2]
         num_heads = [1]
         if 'pam' in model :
@@ -30,14 +28,15 @@ class Net(nn.Module):
             self.coswin = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[1], embed_dim=64, num_heads=num_heads, mlp_ratio=2)
         elif any(x in model for x in ['seperate', 'independent']):
             self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
-        self.f_RDB = PRDB(G0=128, C=4, G=32) if 'rpm' in model else RDB(G0=128, C=4, G=32)
+        self.f_RDB = PRDB(G0=128, C=1, G=32) if 'rpm' else RDB(G0=128, C=4, G=32)
         self.CAlayer = CALayer(128)
         self.fusion = nn.Sequential(self.f_RDB, self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
-        self.reconstruct = RDG(G0=64, C=4, G=24, n_RDB=4, type='P' if 'rpm' in model else 'N')
+        self.reconstruct = RDG(G0=64, C=2, G=24, n_RDB=2, type='P') if 'rpm' in model else RDG(G0=64, C=4, G=24, n_RDB=4, type='N')
         self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
 
 
     def forward(self, x_left, x_right, is_training = 0):
+        
         x_left, mod_pad_h, mod_pad_w = self.check_image_size(x_left)
         x_right, _, _ = self.check_image_size(x_right)
         b, c, h, w = x_left.shape
@@ -125,6 +124,7 @@ class one_conv(nn.Module):
         self.G0, self.G = G0, G
         self.conv = nn.Conv2d(G0, G, kernel_size=3, stride=1, padding=1, bias=True)
         self.relu = nn.LeakyReLU(0.1, inplace=True)
+
     def forward(self, x):
         output = self.relu(self.conv(x))
         return torch.cat((x, output), dim=1)
@@ -195,8 +195,8 @@ class P_one_conv(nn.Module):
         self.relu = nn.LeakyReLU(0.1, inplace=True)
 
     def forward(self, x):
-        x = self.relu(self.conv(x))
-        return x
+        return self.relu(self.conv(x))
+        
 
     def flop(self, N):
         flop = N * (self.G0 * 9 + 1) * self.G
@@ -204,39 +204,45 @@ class P_one_conv(nn.Module):
 
 
 
+class MDB(nn.Module):
+    def __init__(self, G0, G):
+        super(MDB, self).__init__()
+        self.upper_CA = CALayer(G0)
+        self.lower_CA = CALayer(G0 + G)
+        self.upper_conv = P_one_conv(G0 + G, G)
+        self.lower_conv = P_one_conv(G0, G)
+
+    def forward(self, u, l):
+        conv_l = self.lower_conv(l)
+        u_i_0 = torch.cat([u, conv_l], dim=1)
+        l_i_0 = torch.cat([self.upper_CA(u), conv_l], dim=1)
+        conv_u = self.upper_conv(u_i_0)
+        u_i_1 = torch.cat([self.lower_CA(l_i_0), conv_u], dim=1)
+        l_i_1 = torch.cat([l_i_0, conv_u], dim=1)
+        return u_i_1, l_i_1
+
 class PRDB(nn.Module):
     def __init__(self, G0, C, G):
         super(PRDB, self).__init__()
-        self.G0, self.G, self.C = G0, G, C
-        self.s_r = 4 # split_ratio
-        self.convs = []
-        for i in range(C):
-            self.convs.append(P_one_conv((G0 + i * G)*(self.s_r - 1) // self.s_r, G))
-        self.convs = nn.ModuleList(self.convs)
-        self.LFF = nn.Conv2d(G0 + C*G, G0, kernel_size=1, stride=1, padding=0, bias=True)
+        self.G0, self.G, self.C= G0, G, C
+        self.MDBs = nn.ModuleList([MDB(G0 + 2 * i * G, G) for i in range(C)])
+       
+        self.LFF = nn.Conv2d(2 * (G0 + 2 * C * G), G0, kernel_size=1, stride=1, padding=0, bias=True)
 
     def forward(self, x):
-        shortcut = x
-        output_list = []
-        out_size = self.G // self.s_r
-        output_list.append(x)
-        _, x = torch.split(x, (x.shape[1] // self.s_r, x.shape[1] * (self.s_r - 1)// self.s_r), dim=1)
-
-        for conv in self.convs:
-            output = conv(x)
-            output_list.append(output)
-            _ , output = torch.split(output, (out_size, self.G - out_size), dim=1)
-            x = torch.cat([x, output], dim=1)
-
-        out = torch.cat(output_list, dim=1)
-        lff = self.LFF(out)
-        return lff + shortcut
+        u, l = x , x
+        for i in range(self.C):
+            u, l = self.MDBs[i](u, l)
+            
+        FF = torch.cat([u, l], dim=1)
+        out = self.LFF(FF)
+        return out
 
     def flop(self, N):
         flop = 0
-        for cv in self.convs:
-            flop += cv.flop(N)
-        flop += N * (self.G0 + self.C*self.G + 1) * self.G0
+        # for cv in self.convs:
+        #     flop += cv.flop(N)
+        flop += N * (self.G0 + self.G + 1) * self.G0
         return flop
 
 
@@ -268,7 +274,7 @@ class CALayer(nn.Module):
         return flop
 
 class ResB(nn.Module):
-    def __init__(self, channels):
+    def __ini1t__(self, channels):
         self.channel = channels
         super(ResB, self).__init__()
         self.body = nn.Sequential(
@@ -276,7 +282,7 @@ class ResB(nn.Module):
             nn.LeakyReLU(0.1, inplace=True),
             nn.Conv2d(channels, channels, 3, 1, 1, groups=4, bias=True),
         )
-    def __call__(self,x):
+    def forward(self,x):
         out = self.body(x)
         return out + x
 
@@ -383,8 +389,8 @@ if __name__ == "__main__":
     # from utils import disparity_alignment
     # from StreoSwinSR import CoSwinAttn
     # from SwinTransformer import SwinAttn
-    H, W, C = 32, 96, 10
-    net = Net(upscale_factor=2, model='mine_coswin_rpm', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
+    H, W, C = 64, 96, 10
+    net = Net(upscale_factor=2, model='mine_coswin', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
