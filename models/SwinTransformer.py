@@ -96,9 +96,9 @@ class WindowAttention(nn.Module):
         q = q * self.scale
         attn = (q @ k.transpose(-2, -1))
 
-        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
-        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
-        attn = attn + relative_position_bias.unsqueeze(0)
+        # relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
+        # relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
+        # attn = attn + relative_position_bias.unsqueeze(0)
 
         if mask is not None:
             nW = mask.shape[0]
@@ -357,10 +357,10 @@ class SwinAttn(nn.Module):
 
         x_size = (x.shape[2], x.shape[3])
         x = x.flatten(2).transpose(1, 2)
-        x = self.pre_norm(x) 
+        # x = self.pre_norm(x) 
         for layer in self.layers:
             x = layer(x, x_size)
-        x = self.norm(x)  # B L C
+        # x = self.norm(x)  # B L C
         B, HW, C = x.shape
         x = x.transpose(1, 2).view(B, C, x_size[0], x_size[1])
         return x
@@ -388,8 +388,7 @@ class CoWindowAttention(nn.Module):
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5
         # define a parameter table of relative position bias
-        self.relative_position_bias_table = nn.Parameter(
-            torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
+        self.relative_position_bias_table = nn.Parameter(torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
 
         # get pair-wise relative position index for each token inside the window
         coords_h = torch.arange(self.window_size[0])
@@ -434,10 +433,10 @@ class CoWindowAttention(nn.Module):
         q = q * self.scale
         attn = (q @ k.transpose(-2, -1))
 
-        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
-        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
+        # relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
+        # relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
 
-        attn = attn + relative_position_bias.unsqueeze(0)
+        # attn = attn + relative_position_bias.unsqueeze(0)
 
         if mask is not None:
             nW = mask.shape[0]

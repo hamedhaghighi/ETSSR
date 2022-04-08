@@ -1,3 +1,4 @@
+from cv2 import cvtColor
 import airsim
 import cv2
 import numpy as np
@@ -28,6 +29,26 @@ def downsample(img):
     img_d = img_d.astype('float32')
     img_d[:, :, 3] = cv2.resize(img[:, :, 3], (int(0.5 * img.shape[1]), int(0.5 * img.shape[0])))
     return img_d
+
+def save_sensor_data(filename, data):
+    if len(data.shape) == 3:
+        data = cv2.cvtColor(data, cv2.COLOR_RGB2BGR)
+        cv2.imwrite(filename, data)
+    elif len(data.shape) == 2:
+        np.savez_compressed(filename, a=data)
+
+
+def downsample(img, scale):
+    if scale > 1:
+        if len(img.shape) == 3:
+            img = cv2.resize(img, (int(
+                (1/scale) * img.shape[1]), int(1/scale * img.shape[0])), interpolation=cv2.INTER_CUBIC)
+        elif len(img.shape) == 2:
+            img = cv2.resize(
+                img, (int((1/scale) * img.shape[1]), int((1/scale) * img.shape[0])))
+            img = img / scale
+    return img
+
 
 environment = 'TrapCam'
 root_dir = os.path.join('/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR/data/testx2/AirSim' , environment)
@@ -63,17 +84,19 @@ for idx in range(100):
                 img_rgb = img1d.reshape(response.height, response.width, 3)
                 response_list.append(img_rgb[:,:,::-1].astype('float32'))
         LandR_list.append(np.concatenate(response_list, axis=-1))
-    img_path = os.path.join(root_dir, 'img_'+ str(idx))
-    os.makedirs(img_path, exist_ok=True)
-    filename = os.path.join(img_path, 'hr0.npy')
-    np.save(filename, LandR_list[0])
-    filename = os.path.join(img_path, 'hr1.npy')
-    np.save(filename, LandR_list[1])
-    filename = os.path.join(img_path, 'lr0.npy')
-    np.save(filename, downsample(LandR_list[0]))
-    filename = os.path.join(img_path, 'lr1.npy')
-    np.save(filename, downsample(LandR_list[1]))
-    print('image', idx, 'from environemnt ', environment)
+    for scale in [1 ,2 ,4]:
+        for n_cam in [0, 1]:
+            img_path = os.path.join(root_dir, 'img_'+ str(idx))
+            os.makedirs(img_path, exist_ok=True)
+            filename = os.path.join(img_path, 'imgx{}_{}.png'.format(scale, n_cam))
+            save_sensor_data(filename, downsample(LandR_list[n_cam][..., :3], scale))
+            filename = os.path.join(img_path, 'imgx{}_disp_{}'.format(scale, n_cam))
+            save_sensor_data(filename, downsample(LandR_list[n_cam][..., 3], scale))
+            filename = os.path.join(img_path, 'imgx{}_sn_{}.png'.format(scale, n_cam))
+            save_sensor_data(filename, downsample(LandR_list[n_cam][..., 4:7], scale))
+            filename = os.path.join(img_path, 'imgx{}_seg_{}.png'.format(scale, n_cam))
+            save_sensor_data(filename, downsample(LandR_list[n_cam][..., 7:], scale))
+            print('image', idx, 'from environemnt ', environment)
 
 #restore to original state
 client.reset()

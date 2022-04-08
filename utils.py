@@ -22,23 +22,6 @@ def check_disparity(LR_left, LR_right):
     pdb.set_trace()
 
 
-def calculate_window_center_table(self, h, w):
-        w_size = self.w_size
-        table_h = torch.zeros(h + w_size, w + w_size,
-                              self.w_size, self.w_size).long()
-        table_w = torch.zeros(h + w_size, w + w_size,
-                              self.w_size, self.w_size).long()
-        coords_h, coords_w = torch.meshgrid(
-            [torch.arange(h + w_size//2), torch.arange(w + w_size//2)], indexing='ij')
-        coords_h, coords_w = coords_h, coords_w
-        for i in range(w_size//2, h):
-            for j in range(w_size//2, w):
-                table_h[i, j] = coords_h[i - w_size//2: i +
-                    w_size//2, j - w_size//2: j + w_size//2]
-                table_w[i, j] = coords_w[i - w_size//2: i +
-                    w_size//2, j - w_size//2: j + w_size//2]
-        self.window_centre_table = (table_h, table_w)
-
 def select_patch(self, tensor, coords_h, coords_w, b_size):
         w_size = self.w_size
         tensor_padded = F.pad(tensor, (w_size//2, w_size//2, w_size//2, w_size//2))

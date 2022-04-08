@@ -390,7 +390,7 @@ if __name__ == "__main__":
     # from StreoSwinSR import CoSwinAttn
     # from SwinTransformer import SwinAttn
     H, W, C = 64, 96, 10
-    net = Net(upscale_factor=2, model='mine_coswin', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
+    net = Net(upscale_factor=2, model='mine_coswin_rpm', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
