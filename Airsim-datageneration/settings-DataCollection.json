@@ -37,23 +37,23 @@
           "CaptureSettings": [
             {
               "ImageType": 0,
-              "Width": 1280,
-              "Height": 720
+              "Width": 2560,
+              "Height": 1440
             },
             {
               "ImageType": 1,
-              "Width": 1280,
-              "Height": 720
+              "Width": 2560,
+              "Height": 1440
             },
             {
               "ImageType": 5,
-              "Width": 1280,
-              "Height": 720
+              "Width": 2560,
+              "Height": 1440
             },
             {
               "ImageType": 6,
-              "Width": 1280,
-              "Height": 720
+              "Width": 2560,
+              "Height": 1440
             }
           ],
           "Roll": 0.0,
@@ -66,24 +66,24 @@
           "CaptureSettings": [
             {
               "ImageType": 0,
-              "Width": 1280,
-              "Height": 720
+              "Width": 2560,
+              "Height": 1440
             },
             {
               "ImageType": 1,
-              "Width": 1280,
-              "Height": 720
+              "Width": 2560,
+              "Height": 1440
             }
             ,
             {
               "ImageType": 5,
-              "Width": 1280,
-              "Height": 720
+              "Width": 2560,
+              "Height": 1440
             },
             {
               "ImageType": 6,
-              "Width": 1280,
-              "Height": 720
+              "Width": 2560,
+              "Height": 1440
             }
           ],
           "Roll": 0.0,

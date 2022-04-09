@@ -11,8 +11,8 @@ import itertools
 # connect to the AirSim simulator
 client = airsim.CarClient()
 client.confirmConnection()
-# client.enableApiControl(True)
-# car_controls = airsim.CarControls()
+client.enableApiControl(True)
+car_controls = airsim.CarControls()
 
 # print("API Control enabled: %s" % client.isApiControlEnabled())
 
@@ -50,15 +50,32 @@ def downsample(img, scale):
     return img
 
 
-environment = 'TrapCam'
-root_dir = os.path.join('/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR/data/testx2/AirSim' , environment)
+environment = 'AirSimNH'
+root_dir = os.path.join('/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR/data/AirSim2' , environment)
 if os.path.isdir(root_dir):
     print('root dir exists, exitting ...')
     os._exit(1)
     # start_idx = len(os.listdir(root_dir))
 
 for idx in range(100):
-    time.sleep(1)
+
+    car_state = client.getCarState()
+    print("Speed %d, Gear %d" % (car_state.speed, car_state.gear))
+
+    # go forward
+    car_controls.throttle = 2
+    car_controls.steering = 0
+    client.setCarControls(car_controls)
+    print("Go Forward")
+    time.sleep(3)   # let car drive a bit
+
+    # apply brakes
+    car_controls.brake = 1
+    client.setCarControls(car_controls)
+    print("Apply brakes")
+    time.sleep(3)   # let car drive a bit
+    car_controls.brake = 0 #remove brake
+
 
     requests = []
 
@@ -69,7 +86,8 @@ for idx in range(100):
         airsim.ImageRequest(str(i), airsim.ImageType.Segmentation, False, False)
         ]
         requests.extend(cam_i_req)
-    responses = client.simGetImages(requests)
+    responses = [client.simGetImages([r])[0] for r in requests]
+    # responses = [client.simGetImages(requests)]
     LandR_list = []
     for i in range(2):
         response_list = []
@@ -96,7 +114,7 @@ for idx in range(100):
             save_sensor_data(filename, downsample(LandR_list[n_cam][..., 4:7], scale))
             filename = os.path.join(img_path, 'imgx{}_seg_{}.png'.format(scale, n_cam))
             save_sensor_data(filename, downsample(LandR_list[n_cam][..., 7:], scale))
-            print('image', idx, 'from environemnt ', environment)
+    print('image', idx, 'from environemnt ', environment)
 
 #restore to original state
 client.reset()

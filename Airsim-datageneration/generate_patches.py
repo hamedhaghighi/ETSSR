@@ -11,7 +11,7 @@ def modcrop(img, scale):
 
 def load_sensor_data(filename, c_name):
     if c_name == 'disp_':
-        img = np.load(filename)['a']
+        img = np.load(filename)['a'][... , None]
     else:
         img = cv2.imread(filename).astype('float32')
     return img
@@ -23,9 +23,9 @@ def downsample(img):
     return img_d
 
 # Create dataset folder
-dataset = 'AirSim'
-root_dir = '/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR/data/testx2/{}'.format(dataset)
-dest_dir = '/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR/data/train/{}'.format(dataset)
+dataset = 'Carla'
+root_dir = '/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR/data/{}'.format(dataset)
+dest_dir = '/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR/data/{}_patches'.format(dataset)
 #root_dir = '/media/oem/Local Disk/Phd-datasets/iPASSR/data/testx2/AirSim'
 #dest_dir = '/media/oem/Local Disk/Phd-datasets/iPASSR/data/train/AirSim'
 scale = 2
@@ -62,8 +62,8 @@ for n_cam in [0, 1]:
                     x_x2, y_x2 = x_x4 * 2, y_x4 * 2
                     x_x1, y_x1 = x_x4 * 4, y_x4 * 4
                     x4_patch = img_x4[x_x4: x_x4 + h_patch, y_x4: y_x4 + w_patch]
-                    x2_patch = img_x4[x_x2: (x_x4 + h_patch) * 2, y_x2: (y_x4 + w_patch) * 2]
-                    x1_patch = img_x4[x_x1: (x_x4 + h_patch) * 4, y_x1: (y_x4 + w_patch) * 4]
+                    x2_patch = img_x2[x_x2: (x_x4 + h_patch) * 2, y_x2: (y_x4 + w_patch) * 2]
+                    x1_patch = img_x1[x_x1: (x_x4 + h_patch) * 4, y_x1: (y_x4 + w_patch) * 4]
 
                     dst_img_folder = os.path.join(dest_dir, 'patches/{:06d}'.format(idx_patch)) 
                     os.makedirs(dst_img_folder, exist_ok=True)
