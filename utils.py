@@ -12,11 +12,11 @@ def check_disparity(LR_left, LR_right):
     selected_l = LR_left[0, :, coords_h, l2r_w]
     import matplotlib.pyplot as plt
     plt.figure(0)
-    plt.imshow(LR_right[0, :3].permute(1, 2, 0).numpy())
-    plt.figure(1)
-    plt.imshow(selected_l[:3].permute(1, 2, 0).numpy())
-    plt.figure(2)
     plt.imshow(LR_left[0, :3].permute(1, 2, 0).numpy())
+    plt.figure(1)
+    plt.imshow(selected_r[:3].permute(1, 2, 0).numpy())
+    plt.figure(2)
+    plt.imshow(LR_right[0, :3].permute(1, 2, 0).numpy())
     plt.show()
     import pdb
     pdb.set_trace()

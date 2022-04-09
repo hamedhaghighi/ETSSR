@@ -52,10 +52,10 @@ class cfg_parser():
 
 def test(cfg):
     IC = cfg.input_channel
-    img_size = tuple([biggest_divisior(cfg.input_resolution[0]), biggest_divisior(cfg.input_resolution[0])])
-    img_size = check_input_size(img_size, cfg.w_size)
-    net = mine.Net(cfg.scale_factor, IC, cfg.w_size, cfg.device).to(cfg.device) if cfg.model == 'mine' \
-        else (SSR.Net(cfg.scale_factor, img_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'swin' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
+    input_size = tuple([biggest_divisior(cfg.input_resolution[0]), biggest_divisior(cfg.input_resolution[0])])
+    input_size = check_input_size(input_size, cfg.w_size)
+    net = mine.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'mine' in cfg.model\
+        else (SSR.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'swin' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
     model_path = os.path.join(cfg.checkpoints_dir, 'modelx' + str(cfg.scale_factor) + '.pth')
     model = torch.load(model_path, map_location={'cuda:0': cfg.device})
     model_state_dict = dict()
@@ -82,7 +82,8 @@ def test(cfg):
             n_h , n_w = h // h_patch, w // w_patch
             lr_left_patches = patchify_img(LR_left, h_patch, w_patch)
             lr_right_patches = patchify_img(LR_right, h_patch, w_patch)
-            batch_size = lr_left_patches.shape[0]
+            # batch_size = lr_left_patches.shape[0]
+            batch_size = 2
             sr_left_list = []
             sr_right_list = []
             assert lr_left_patches.shape[0]%batch_size == 0
@@ -109,9 +110,9 @@ def test(cfg):
             ssim_left_list.append(ssim_left)
             ssim_right_list.append(ssim_right)
             plt.figure(0)
-            plt.imshow(sr_left.astype('uint8'))
+            plt.imshow(sr_left[..., :3].astype('uint8'))
             plt.figure(1)
-            plt.imshow(sr_right.astype('uint8'))
+            plt.imshow(sr_right[..., :3].astype('uint8'))
             plt.show()
             test_tq.update(1)
 
@@ -136,6 +137,5 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
     cfg = cfg_parser(args)
-    # cfg.data_dir = os.path.join(cfg.data_dir, cfg.dataset)
     test(cfg)
     print('Finished!')

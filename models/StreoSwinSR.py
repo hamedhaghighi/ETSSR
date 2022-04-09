@@ -186,7 +186,6 @@ class CoRSTB(nn.Module):
         self.use_checkpoint = use_checkpoint
         self.dim = dim
         self.input_resolution = input_resolution
-        # TODO: shift size has changed
         self.blocks = nn.ModuleList([
             CoSwinAttnBlock(dim=dim, input_resolution=input_resolution,
                           num_heads=num_heads, window_size=window_size,

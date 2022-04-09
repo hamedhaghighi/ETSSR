@@ -21,6 +21,7 @@ def modify_opt_for_fast_test(opt):
     opt.n_epochs = 2
     opt.batch_size = 1
     opt.exp_name = 'test'
+    opt.val_split_ratio = 0.5
     # opt.epoch_decay = opt.n_epochs//2
     # opt.display_freq = 1
     # opt.print_freq = 1
@@ -48,6 +49,7 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
     for _ in range(len(tq)):
         HR_left, HR_right, LR_left, LR_right = next(dl_iter)
         HR_left, HR_right, LR_left, LR_right = HR_left.to(cfg.device), HR_right.to(cfg.device), LR_left.to(cfg.device), LR_right.to(cfg.device)
+        # check_disparity(LR_left.cpu(), LR_right.cpu())
         if phase == 'train':
             net.train(True)
             loss = net.calc_loss(LR_left, LR_right, HR_left, HR_right, cfg)
@@ -81,7 +83,6 @@ def train(train_loader, val_loader, cfg):
     net = mine.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'mine' in cfg.model\
         else (SSR.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'swin' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
     cudnn.benchmark = True
-    scale = cfg.scale_factor
     if cfg.load:
         model_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '.pth')
         if os.path.isfile(model_path):
@@ -108,8 +109,8 @@ def train(train_loader, val_loader, cfg):
 def main(cfg):
     train_set = dataset.DataSetLoader(cfg)
     total_samples = len(train_set)
-    train_indcs = range(total_samples)[int(0.1 * total_samples):]
-    val_indcs = range(total_samples)[:int(0.1 * total_samples)]
+    train_indcs = range(total_samples)[int(cfg.val_split_ratio* total_samples):]
+    val_indcs = range(total_samples)[:int(cfg.val_split_ratio * total_samples)]
     train_dataset = Subset(train_set, train_indcs)
     val_dataset = Subset(train_set, val_indcs)
     train_loader = DataLoader(dataset=train_dataset, num_workers=2, batch_size=cfg.batch_size, shuffle=True)

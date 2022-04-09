@@ -13,7 +13,7 @@ class DataSetLoader(Dataset):
         self.dataset_dir = cfg.data_dir
         self.file_list = sorted(os.listdir(self.dataset_dir))
         self.to_tensor = to_tensor
-        self.scale = cfg.scale
+        self.scale = cfg.scale_factor
         self.c_names = ['', 'disp_', 'seg_']
         self.exts = ['.png', '.npz', '.png']
 
@@ -28,7 +28,7 @@ class DataSetLoader(Dataset):
 
     def load_sensor_data(self, filename, c_name):
         if c_name == 'disp_':
-            img = np.load(filename)['a']
+            img = np.load(filename)['a'][..., None].astype('float32')
         else:
             img = cv2.imread(filename)
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB).astype('float32')
@@ -39,7 +39,7 @@ class DataSetLoader(Dataset):
         image_path = os.path.join(self.dataset_dir, self.file_list[index])
         def load_mono_cam(n_cam, scale):
             img_list = []
-            for c_name, ext in zip(self.cam_names, self.exts):
+            for c_name, ext in zip(self.c_names, self.exts):
                 def load_scale_cam(scale):
                     filename = os.path.join(image_path, 'imgx{}_{}{}{}'.format(scale, c_name, n_cam, ext))
                     img = self.load_sensor_data(filename, c_name)
@@ -47,13 +47,13 @@ class DataSetLoader(Dataset):
                 img_list.append(load_scale_cam(scale))
             return img_list
         if self.scale == 2:
-            img_hr_left = np.concatenate(load_mono_cam(0, 2), axis=-1)
-            img_hr_right = np.concatenate(load_mono_cam(1, 2), axis=-1)
+            img_hr_left = np.concatenate(load_mono_cam(0, 2), axis=-1)[..., :3]
+            img_hr_right = np.concatenate(load_mono_cam(1, 2), axis=-1)[..., :3]
             img_lr_left = np.concatenate(load_mono_cam(0, 4), axis=-1)
             img_lr_right = np.concatenate(load_mono_cam(1, 4), axis=-1)
         elif self.scale == 4:
-            img_hr_left = np.concatenate(load_mono_cam(0, 1), axis=-1)
-            img_hr_right = np.concatenate(load_mono_cam(1, 1), axis=-1)
+            img_hr_left = np.concatenate(load_mono_cam(0, 1), axis=-1)[..., :3]
+            img_hr_right = np.concatenate(load_mono_cam(1, 1), axis=-1)[..., :3]
             img_lr_left = np.concatenate(load_mono_cam(0, 4), axis=-1)
             img_lr_right = np.concatenate(load_mono_cam(1, 4), axis=-1)
     
