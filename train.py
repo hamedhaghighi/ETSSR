@@ -113,7 +113,6 @@ def main(cfg):
     val_dataset = Subset(train_set, val_indcs)
     train_loader = DataLoader(dataset=train_dataset, num_workers=2, batch_size=cfg.batch_size, shuffle=True, drop_last=True)
     val_loader = DataLoader(dataset=val_dataset, num_workers=2, batch_size=cfg.batch_size, shuffle=False)
-    train_loader = DataLoader(dataset=train_set, num_workers=2, batch_size=cfg.batch_size, shuffle=True)
     train(train_loader, val_loader, cfg)
 
 if __name__ == '__main__':
