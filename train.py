@@ -29,8 +29,6 @@ def modify_opt_for_fast_test(opt):
     # opt.max_dataset_size = 10
 
 
-
-
 class cfg_parser():
     def __init__(self, args):
         opt_dict = yaml.safe_load(open(args.cfg, 'r'))
@@ -81,7 +79,7 @@ def train(train_loader, val_loader, cfg):
     IC = cfg.input_channel
     input_size = check_input_size(cfg.input_resolution, cfg.w_size)
     net = mine.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'mine' in cfg.model\
-        else (SSR.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'swin' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
+        else (SSR.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'transformer' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
     cudnn.benchmark = True
     if cfg.load:
         model_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '.pth')
@@ -113,7 +111,7 @@ def main(cfg):
     val_indcs = range(total_samples)[:int(cfg.val_split_ratio * total_samples)]
     train_dataset = Subset(train_set, train_indcs)
     val_dataset = Subset(train_set, val_indcs)
-    train_loader = DataLoader(dataset=train_dataset, num_workers=2, batch_size=cfg.batch_size, shuffle=True)
+    train_loader = DataLoader(dataset=train_dataset, num_workers=2, batch_size=cfg.batch_size, shuffle=True, drop_last=True)
     val_loader = DataLoader(dataset=val_dataset, num_workers=2, batch_size=cfg.batch_size, shuffle=False)
     train_loader = DataLoader(dataset=train_set, num_workers=2, batch_size=cfg.batch_size, shuffle=True)
     train(train_loader, val_loader, cfg)

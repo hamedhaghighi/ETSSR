@@ -69,25 +69,17 @@ class Net(nn.Module):
         ''' Photometric Loss '''
         Res_left = torch.abs(
             HR_left - F.interpolate(LR_left[:, :3], scale_factor=scale, mode='bicubic', align_corners=False))
-        Res_left = F.interpolate(
-            Res_left, scale_factor=1 / scale, mode='bicubic', align_corners=False)
-        Res_right = torch.abs(HR_right - F.interpolate(
-            LR_right[:, :3], scale_factor=scale, mode='bicubic', align_corners=False))
-        Res_right = F.interpolate(
-            Res_right, scale_factor=1 / scale, mode='bicubic', align_corners=False)
-        Res_leftT = torch.bmm(M_right_to_left.contiguous().view(b * h, w, w), Res_right.permute(
-            0, 2, 3, 1).contiguous().view(b * h, w, c)).view(b, h, w, c).contiguous().permute(0, 3, 1, 2)
-        Res_rightT = torch.bmm(M_left_to_right.contiguous().view(b * h, w, w), Res_left.permute(
-            0, 2, 3, 1).contiguous().view(b * h, w, c)).view(b, h, w, c).contiguous().permute(0, 3, 1, 2)
-        self.loss_photo = criterion_L1(Res_left * V_left.repeat(1, 3, 1, 1), Res_leftT * V_left.repeat(
-            1, 3, 1, 1)) + criterion_L1(Res_right * V_right.repeat(1, 3, 1, 1), Res_rightT * V_right.repeat(1, 3, 1, 1))
+        Res_left = F.interpolate(Res_left, scale_factor=1 / scale, mode='bicubic', align_corners=False, recompute_scale_factor=True)
+        Res_right = torch.abs(HR_right - F.interpolate(LR_right[:, :3], scale_factor=scale, mode='bicubic', align_corners=False))
+        Res_right = F.interpolate(Res_right, scale_factor=1 / scale, mode='bicubic', align_corners=False, recompute_scale_factor=True)
+        Res_leftT = torch.bmm(M_right_to_left.contiguous().view(b * h, w, w), Res_right.permute(0, 2, 3, 1).contiguous().view(b * h, w, c)).view(b, h, w, c).contiguous().permute(0, 3, 1, 2)
+        Res_rightT = torch.bmm(M_left_to_right.contiguous().view(b * h, w, w), Res_left.permute(0, 2, 3, 1).contiguous().view(b * h, w, c)).view(b, h, w, c).contiguous().permute(0, 3, 1, 2)
+        self.loss_photo = criterion_L1(Res_left * V_left.repeat(1, 3, 1, 1), Res_leftT * V_left.repeat(1, 3, 1, 1)) + criterion_L1(Res_right * V_right.repeat(1, 3, 1, 1), Res_rightT * V_right.repeat(1, 3, 1, 1))
         ''' Smoothness Loss '''
         loss_h = criterion_L1(M_right_to_left[:, :-1, :, :], M_right_to_left[:, 1:, :, :]) + \
-            criterion_L1(
-            M_left_to_right[:, :-1, :, :], M_left_to_right[:, 1:, :, :])
+            criterion_L1(M_left_to_right[:, :-1, :, :], M_left_to_right[:, 1:, :, :])
         loss_w = criterion_L1(M_right_to_left[:, :, :-1, :-1], M_right_to_left[:, :, 1:, 1:]) + \
-            criterion_L1(
-            M_left_to_right[:, :, :-1, :-1], M_left_to_right[:, :, 1:, 1:])
+            criterion_L1(M_left_to_right[:, :, :-1, :-1], M_left_to_right[:, :, 1:, 1:])
         self.loss_smooth = loss_w + loss_h
         ''' Cycle Loss '''
         Res_left_cycle = torch.bmm(M_right_to_left.contiguous().view(b * h, w, w), Res_rightT.permute(
@@ -98,9 +90,9 @@ class Net(nn.Module):
             1, 3, 1, 1)) + criterion_L1(Res_right * V_right.repeat(1, 3, 1, 1), Res_right_cycle * V_right.repeat(1, 3, 1, 1))
         ''' Consistency Loss '''
         SR_left_res = F.interpolate(torch.abs(
-            HR_left - SR_left), scale_factor=1 / scale, mode='bicubic', align_corners=False)
+            HR_left - SR_left), scale_factor=1 / scale, mode='bicubic', align_corners=False, recompute_scale_factor=True)
         SR_right_res = F.interpolate(torch.abs(
-            HR_right - SR_right), scale_factor=1 / scale, mode='bicubic', align_corners=False)
+            HR_right - SR_right), scale_factor=1 / scale, mode='bicubic', align_corners=False, recompute_scale_factor=True)
         SR_left_resT = torch.bmm(M_right_to_left.detach().contiguous().view(b * h, w, w), SR_right_res.permute(
             0, 2, 3, 1).contiguous().view(b * h, w, c)).view(b, h, w, c).contiguous().permute(0, 3, 1, 2)
         SR_right_resT = torch.bmm(M_left_to_right.detach().contiguous().view(b * h, w, w), SR_left_res.permute(
