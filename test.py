@@ -65,6 +65,9 @@ def test(cfg):
     net.load_state_dict(model_state_dict)
     image_folders = os.listdir()
     root_dir = cfg.data_dir
+    results_dir = os.path.join(cfg.checkpoints_dir, 'results')
+    os.makedirs(results_dir, exist_ok=True)
+
     for env in os.listdir(root_dir):
         cfg.data_dir = os.path.join(root_dir, env)
         total_dataset = dataset.DataSetLoader(cfg, to_tensor=False)
@@ -74,6 +77,7 @@ def test(cfg):
         psnr_left_list=[]
         ssim_left_list =[]
         ssim_right_list=[]
+        rand_ind_to_save = np.random.randint(0, len(test_tq))
         for idx in range(len(test_tq)):
             HR_left, HR_right, LR_left, LR_right = test_set[idx]
             h, w, _ = LR_left.shape
@@ -109,12 +113,25 @@ def test(cfg):
             psnr_right_list.append(psnr_right)
             ssim_left_list.append(ssim_left)
             ssim_right_list.append(ssim_right)
-            plt.figure(0)
-            plt.imshow(sr_left[..., :3].astype('uint8'))
-            plt.figure(1)
-            plt.imshow(sr_right[..., :3].astype('uint8'))
-            plt.show()
-            test_tq.update(1)
+            if idx == rand_ind_to_save:
+                
+                def save_array(array, name):
+                    im =Image.fromarray(array)
+                    img_path = os.path.join(results_dir,'{}_{}_img_{}.png'.format(name, env, idx))
+                    im.save(img_path)
+
+                save_array(sr_left[..., :3].astype('uint8'), 'sr_left')
+                save_array(sr_right[..., :3].astype('uint8'), 'sr_right')
+                save_array(LR_left[..., :3].astype('uint8'), 'lr_left')
+                save_array(LR_right[..., :3].astype('uint8'), 'lr_right')
+                save_array(HR_left[..., :3].astype('uint8'), 'hr_left')
+                save_array(HR_right[..., :3].astype('uint8'), 'hr_right')
+            # plt.figure(0)
+            # plt.imshow(sr_left[..., :3].astype('uint8'))
+            # plt.figure(1)
+            # plt.imshow(sr_right[..., :3].astype('uint8'))
+            # plt.show()
+            # test_tq.update(1)
 
         print('env: ', env, 'psnr_left:', np.array(psnr_left_list).mean(), 'psnr_right:', np.array(psnr_right_list).mean())
         print('env: ', env, 'ssim_left:', np.array(ssim_left_list).mean(), 'ssim_right:', np.array(ssim_right_list).mean())
