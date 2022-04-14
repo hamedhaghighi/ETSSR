@@ -105,7 +105,7 @@ def train(train_loader, val_loader, cfg):
 
 
 def main(cfg):
-    train_set = dataset.DataSetLoader(cfg)
+    train_set = dataset.DataSetLoader(cfg, max_data_size=cfg.max_data_size)
     total_samples = len(train_set)
     train_indcs = range(total_samples)[int(cfg.val_split_ratio* total_samples):]
     val_indcs = range(total_samples)[:int(cfg.val_split_ratio * total_samples)]
