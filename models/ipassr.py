@@ -299,7 +299,7 @@ def M_Relax(M, num_pixels):
 
 
 if __name__ == "__main__":
-    H , W, C = 32, 96 , 10
+    H , W, C = 64, 96 , 10
     net = Net(upscale_factor=2, input_channel=C).cuda()
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     net.train(False)

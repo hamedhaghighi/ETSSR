@@ -18,7 +18,7 @@ class Net(nn.Module):
         self.model = model
         self.w_size = w_size
         self.init_feature = nn.Conv2d(self.input_channel, 64, 3, 1, 1, bias=True)
-        self.n_RDB = 3 if 'MDB' in model else 4
+        self.n_RDB = 2 if 'MDB' in model else 3
         self.deep_feature = RDG(G0=64, C=2, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
         depths = [2]
         num_heads = [1]
@@ -29,7 +29,7 @@ class Net(nn.Module):
             self.coswin = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[1], embed_dim=64, num_heads=num_heads, mlp_ratio=2)
         elif any(x in model for x in ['seperate', 'independent']):
             self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
-        self.f_RDB = PRDB(G0=128, C=1, G=32) if 'MDB' else RDB(G0=128, C=4, G=32)
+        self.f_RDB = PRDB(G0=128, C=2, G=32) if 'MDB' else RDB(G0=128, C=4, G=32)
         self.CAlayer = CALayer(128)
         self.fusion = nn.Sequential(self.f_RDB, self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
         self.reconstruct = RDG(G0=64, C=2, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
@@ -37,9 +37,9 @@ class Net(nn.Module):
 
 
     def forward(self, x_left, x_right, is_training = 0):
-        
-        x_left, mod_pad_h, mod_pad_w = self.check_image_size(x_left)
-        x_right, _, _ = self.check_image_size(x_right)
+        if not 'pam' in self.model:
+            x_left, mod_pad_h, mod_pad_w = self.check_image_size(x_left)
+            x_right, _, _ = self.check_image_size(x_right)
         b, c, h, w = x_left.shape
         if c > 3:
             d_left = x_left[:, 3]
@@ -77,8 +77,8 @@ class Net(nn.Module):
             buffer_leftF, buffer_rightF = self.coswin(buffer_leftF, buffer_rightF, d_left, d_right)
         out_left = self.upscale(buffer_leftF) + x_left_upscale
         out_right = self.upscale(buffer_rightF) + x_right_upscale
-        mod_h = -mod_pad_h * self.upscale_factor if mod_pad_h != 0 else None
-        mod_w = -mod_pad_w * self.upscale_factor if mod_pad_w != 0 else None
+        mod_h = -mod_pad_h * self.upscale_factor if (not 'pam' in self.model and mod_pad_h != 0) else None
+        mod_w = -mod_pad_w * self.upscale_factor if (not 'pam' in self.model and mod_pad_w != 0) else None
         return out_left[..., :mod_h, :mod_w], out_right[..., :mod_h, :mod_w]
 
     def get_losses(self):
@@ -391,7 +391,7 @@ if __name__ == "__main__":
     # from StreoSwinSR import CoSwinAttn
     # from SwinTransformer import SwinAttn
     H, W, C = 64, 96, 7
-    net = Net(upscale_factor=2, model='pam_MDB', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
+    net = Net(upscale_factor=2, model='pam', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])

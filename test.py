@@ -86,8 +86,8 @@ def test(cfg):
             n_h , n_w = h // h_patch, w // w_patch
             lr_left_patches = patchify_img(LR_left, h_patch, w_patch)
             lr_right_patches = patchify_img(LR_right, h_patch, w_patch)
-            # batch_size = lr_left_patches.shape[0]
-            batch_size = 2
+            batch_size = lr_left_patches.shape[0]
+            # batch_size = 2
             sr_left_list = []
             sr_right_list = []
             assert lr_left_patches.shape[0]%batch_size == 0
