@@ -78,7 +78,7 @@ def train(train_loader, val_loader, cfg):
     IC = cfg.input_channel
     input_size = check_input_size(cfg.input_resolution, cfg.w_size)
     net = mine.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'mine' in cfg.model\
-        else (SSR.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'transformer' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
+        else (SSR.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, device=cfg.device).to(cfg.device) if 'transformer' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
     if cfg.load:
         model_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '.pth')
         if os.path.isfile(model_path):

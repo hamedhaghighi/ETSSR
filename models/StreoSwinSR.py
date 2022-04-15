@@ -28,13 +28,13 @@ class Net(nn.Module):
         self.init_feature = nn.Conv2d(input_channel, embed_dim, 3, 1, 1, bias=True)
         depths = [6 ,6]
         num_heads = [4, 4]
-        if self.model == 'swin_interleaved':
+        if 'swin_interleaved' in self.model:
             self.deep_feature = SwinAttnInterleaved(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
         else:
             self.deep_feature = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
-            if model == 'swin_pam':
+            if 'swin_pam' in self.model:
                 self.co_feature = PAM(embed_dim)
-            elif model == 'all_swin':
+            elif 'all_swin' in self.model:
                 self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
             self.CAlayer = CALayer(embed_dim * 2)
             self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(embed_dim * 2, embed_dim, kernel_size=1, stride=1, padding=0, bias=True))
@@ -53,14 +53,14 @@ class Net(nn.Module):
         x_right_upscale = F.interpolate(x_right[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
         buffer_left = self.init_feature(x_left)
         buffer_right = self.init_feature(x_right)
-        if self.model == 'swin_interleaved':
+        if 'swin_interleaved' in self.model:
             buffer_leftF, buffer_rightF = self.deep_feature(buffer_left, buffer_right, d_left, d_right)
         else:
             buffer_left = self.deep_feature(buffer_left)
             buffer_right = self.deep_feature(buffer_right)
-            if self.model == 'swin_pam':
+            if 'swin_pam' in self.model:
                 buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right)
-            elif self.model == 'all_swin':
+            elif 'all_swin' in self.model:
                 buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right, d_left, d_right)
             buffer_leftF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1))
             buffer_rightF = self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
