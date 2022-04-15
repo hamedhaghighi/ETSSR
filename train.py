@@ -1,7 +1,5 @@
-from torch.autograd import Variable
 from torch.utils.data import DataLoader
 from torch.utils.data import Subset
-import torch.backends.cudnn as cudnn
 import argparse
 from utils import *
 import models.ipassr as ipassr
@@ -16,6 +14,7 @@ import numpy as np
 import tqdm
 import yaml
 import os
+import random
 
 def modify_opt_for_fast_test(opt):
     opt.n_epochs = 2
@@ -80,7 +79,6 @@ def train(train_loader, val_loader, cfg):
     input_size = check_input_size(cfg.input_resolution, cfg.w_size)
     net = mine.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'mine' in cfg.model\
         else (SSR.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'transformer' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
-    cudnn.benchmark = True
     if cfg.load:
         model_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '.pth')
         if os.path.isfile(model_path):
@@ -123,8 +121,12 @@ if __name__ == '__main__':
     parser.add_argument('--fast_test', default=False, action='store_true')
     args = parser.parse_args()
     cfg = cfg_parser(args)
-    torch.manual_seed(0)
-    np.random.seed(0)
+    seed = 0
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
     if cfg.fast_test:
         modify_opt_for_fast_test(cfg)
     main(cfg)
