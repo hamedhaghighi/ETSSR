@@ -6,7 +6,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 sys.path.append('/home/oem/Documents/PhD_proj/iPASSR')
 from utils import disparity_alignment
-from models.StreoSwinSR import CoSwinAttn
+from models.CoSwinTransformer import CoSwinAttn
 from models.SwinTransformer import SwinAttn
 
 
@@ -18,8 +18,8 @@ class Net(nn.Module):
         self.model = model
         self.w_size = w_size
         self.init_feature = nn.Conv2d(self.input_channel, 64, 3, 1, 1, bias=True)
-        self.n_RDB = 3 if 'MDB' in model else 3
-        self.deep_feature = RDG(G0=64, C=1, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
+        self.n_RDB = 3 if 'MDB' in model else 2
+        self.deep_feature = RDG(G0=64, C=2, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
         depths = [2]
         num_heads = [1]
         if 'pam' in model :
@@ -29,10 +29,10 @@ class Net(nn.Module):
             self.coswin = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[1], embed_dim=64, num_heads=num_heads, mlp_ratio=2)
         elif any(x in model for x in ['seperate', 'independent']):
             self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
-        self.f_RDB = PRDB(G0=128, C=2, G=32) if 'MDB' else RDB(G0=128, C=4, G=32)
+        self.f_RDB = RDB(G0=128, C=4, G=32)
         self.CAlayer = CALayer(128)
         self.fusion = nn.Sequential(self.f_RDB, self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
-        self.reconstruct = RDG(G0=64, C=1, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
+        self.reconstruct = RDG(G0=64, C=2, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
         self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
 
 
@@ -51,8 +51,8 @@ class Net(nn.Module):
             coords_b, coords_h, r2l_w, l2r_w = disparity_alignment(d_left, d_right, b, h, w)
             x_left_selected , x_right_selected = x_left[coords_b, :, coords_h, l2r_w].permute(0, 3, 1, 2) ,x_right[coords_b, :, coords_h, r2l_w].permute(0, 3, 1, 2)
             x_left, x_right = torch.cat([x_left, x_left_selected], dim = 1), torch.cat([x_right, x_right_selected], dim = 1)
-        buffer_left = self.init_feature(x_left)
-        buffer_right = self.init_feature(x_right)
+        buffer_left = self.init_feature(x_left[:, :self.input_channel])
+        buffer_right = self.init_feature(x_right[:, :self.input_channel])
         buffer_left, catfea_left = self.deep_feature(buffer_left)
         buffer_right, catfea_right = self.deep_feature(buffer_right)
         if 'pam' in self.model:
@@ -195,7 +195,7 @@ class P_one_conv(nn.Module):
     def __init__(self, G0, G):
         super(P_one_conv, self).__init__()
         self.G0, self.G = G0, G
-        self.conv = nn.Conv2d(G0, G, kernel_size=3,stride=1, padding=1, bias=True)
+        self.conv = nn.Conv2d(G0, G, kernel_size=3, stride=1, padding=1, bias=True)
         self.relu = nn.LeakyReLU(0.1, inplace=True)
 
     def forward(self, x):
@@ -211,43 +211,40 @@ class P_one_conv(nn.Module):
 class MDB(nn.Module):
     def __init__(self, G0, G):
         super(MDB, self).__init__()
-        self.upper_CA = CALayer(G0)
-        self.lower_CA = CALayer(G0 + G)
-        self.upper_conv = P_one_conv(G0 + G, G)
-        self.lower_conv = P_one_conv(G0, G)
+        self.G , self.G0 = G , G0
+        self.point_wise = nn.Conv2d(G0, G, kernel_size=1, bias=True)
+        self.CA = CALayer(G)
+        self.conv_1 = nn.Conv2d(G0, G, kernel_size=1, bias=True)
+        self.conv_2 = P_one_conv(G, G)
 
-    def forward(self, u, l):
-        conv_l = self.lower_conv(l)
-        u_i_0 = torch.cat([u, conv_l], dim=1)
-        l_i_0 = torch.cat([self.upper_CA(u), conv_l], dim=1)
-        conv_u = self.upper_conv(u_i_0)
-        u_i_1 = torch.cat([self.lower_CA(l_i_0), conv_u], dim=1)
-        l_i_1 = torch.cat([l_i_0, conv_u], dim=1)
-        return u_i_1, l_i_1
+    def forward(self, x):
+        out_ca = self.CA(self.point_wise(x))
+        out_conv_1 = self.conv_1(x)
+        out_conv_2 = self.conv_2(out_conv_1)
+        out = torch.cat([x, out_conv_2 + out_ca], dim=1)
+        return out
     
     def flop(self, N):
         flop = 0
-        flop += self.upper_CA.flop(N)
-        flop += self.lower_CA.flop(N)
-        flop += self.lower_conv.flop(N)
-        flop += self.upper_conv.flop(N)
+        flop += self.CA.flop(N)
+        flop += 2 * self.G0 * self.G * N
+        flop += self.conv_2.flop(N)
         return flop
 
 class PRDB(nn.Module):
     def __init__(self, G0, C, G):
         super(PRDB, self).__init__()
         self.G0, self.G, self.C= G0, G, C
-        self.MDBs = nn.ModuleList([MDB(G0 + 2 * i * G, G) for i in range(C)])
+        self.MDBs = nn.ModuleList([MDB(G0 + i * G, G) for i in range(C)])
        
-        self.LFF = nn.Conv2d(2 * (G0 + 2 * C * G), G0, kernel_size=1, stride=1, padding=0, bias=True)
+        self.LFF = nn.Conv2d(G0 + C * G, G0, kernel_size=1, stride=1, padding=0, bias=True)
 
     def forward(self, x):
-        u, l = x , x
+
         for i in range(self.C):
-            u, l = self.MDBs[i](u, l)
-            
-        FF = torch.cat([u, l], dim=1)
-        out = self.LFF(FF)
+            x = self.MDBs[i](x)   
+
+        out = self.LFF(x)
         return out
 
     def flop(self, N):
