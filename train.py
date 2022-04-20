@@ -43,6 +43,7 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
     n_batch = len(dl) if not cfg.fast_test else 2
     loss_list = defaultdict(list)
     tq = tqdm.tqdm(total=n_batch, desc='Iter', position=3)
+    avg_sr_loss = None
     for _ in range(len(tq)):
         HR_left, HR_right, LR_left, LR_right = next(dl_iter)
         HR_left, HR_right, LR_left, LR_right = HR_left.to(cfg.device), HR_right.to(cfg.device), LR_left.to(cfg.device), LR_right.to(cfg.device)
@@ -69,10 +70,11 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
     
     if phase == 'val':
         avg_loss_list = {k: np.array(v).mean() for k, v in loss_list.items()}
+        avg_sr_loss = avg_loss_list['SR']
         vis.print_current_losses(phase, idx_epoch, idx_step, avg_loss_list, tq)
         vis.plot_current_losses(phase, idx_epoch, avg_loss_list, idx_step)
-        loss_list = defaultdict(list)
-    return idx_step
+
+    return idx_step,  avg_sr_loss
 
 def train(train_loader, val_loader, cfg):
     IC = cfg.input_channel
@@ -80,7 +82,7 @@ def train(train_loader, val_loader, cfg):
     net = mine.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'mine' in cfg.model\
         else (SSR.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, device=cfg.device).to(cfg.device) if 'transformer' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
     if cfg.load:
-        model_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '.pth')
+        model_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '_last' +'.pth')
         if os.path.isfile(model_path):
             model = torch.load(model_path, map_location={'cuda:0': cfg.device})
             net.load_state_dict(model['state_dict'])
@@ -91,15 +93,20 @@ def train(train_loader, val_loader, cfg):
     # net = torch.nn.DataParallel(net, device_ids=[0, 1])
     optimizer = torch.optim.Adam([paras for paras in net.parameters() if paras.requires_grad == True], lr=cfg.lr)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=cfg.n_steps, gamma=cfg.gamma)
-
+    min_val_loss = np.inf
     idx_step = 0 
+    best_ckpt_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '_best' + '.pth')
+    last_ckpt_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '_last' + '.pth')
     vis = Logger(cfg)
     for idx_epoch in range(cfg.start_epoch, cfg.n_epochs):
-        idx_step = step(net, train_loader, optimizer, vis, idx_epoch, idx_step, cfg, 'train')
-        step(net, val_loader, optimizer, vis, idx_epoch, idx_step, cfg, 'val')
+        idx_step , _ = step(net, train_loader, optimizer, vis, idx_epoch, idx_step, cfg, 'train')
+        _, val_loss = step(net, val_loader, optimizer, vis, idx_epoch, idx_step, cfg, 'val')
         scheduler.step()
-        save_dir = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '.pth')
-        torch.save({'epoch': idx_epoch + 1, 'state_dict': net.state_dict()}, save_dir)
+        if val_loss < min_val_loss:
+            min_val_loss = val_loss
+            torch.save({'epoch': idx_epoch + 1, 'state_dict': net.state_dict()}, best_ckpt_path)
+        torch.save({'epoch': idx_epoch + 1, 'state_dict': net.state_dict()}, last_ckpt_path)
+
 
 
 def main(cfg):

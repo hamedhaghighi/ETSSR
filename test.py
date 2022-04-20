@@ -56,7 +56,7 @@ def test(cfg):
     input_size = check_input_size(input_size, cfg.w_size)
     net = mine.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'mine' in cfg.model\
         else (SSR.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'swin' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
-    model_path = os.path.join(cfg.checkpoints_dir, 'modelx' + str(cfg.scale_factor) + '.pth')
+    model_path = os.path.join(cfg.checkpoints_dir, 'modelx' + str(cfg.scale_factor) + '_best' + '.pth')
     model = torch.load(model_path, map_location={'cuda:0': cfg.device})
     model_state_dict = dict()
     for k, v in model['state_dict'].items():
