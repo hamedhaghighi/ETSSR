@@ -18,7 +18,7 @@ class Net(nn.Module):
         self.model = model
         self.w_size = w_size
         self.init_feature = nn.Conv2d(self.input_channel, 64, 3, 1, 1, bias=True)
-        self.n_RDB = 4 if 'MDB' in model else 4
+        self.n_RDB = 3 if 'MDB' in model else 3
         self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
         depths = [2]
         num_heads = [1]

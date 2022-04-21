@@ -383,13 +383,13 @@ class CoSwinAttn(nn.Module):
         x_size = (x_left.shape[2], x_left.shape[3])
         x_left = x_left.flatten(2).transpose(1, 2)
         x_right = x_right.flatten(2).transpose(1, 2)
-        # x_left = self.pre_norm(x_left)
-        # x_right = self.pre_norm(x_right)
+        x_left = self.pre_norm(x_left)
+        x_right = self.pre_norm(x_right)
         for layer in self.layers:
             x_left, x_right = layer(x_left, x_right, d_left, d_right, x_size)
 
-        # x_left = self.norm(x_left)  # B L C
-        # x_right = self.norm(x_right)
+        x_left = self.norm(x_left)  # B L C
+        x_right = self.norm(x_right)
         B, HW, C = x_left.shape
         x_left = x_left.transpose(1, 2).view(B, C, x_size[0], x_size[1])
         x_right = x_right.transpose(1, 2).view(B, C, x_size[0], x_size[1])
