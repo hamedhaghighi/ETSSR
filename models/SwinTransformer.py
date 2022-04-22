@@ -193,7 +193,7 @@ class SwinAttnBlock(nn.Module):
         B, L, C = x.shape
         # assert L == H * W, "input feature has wrong size"
         shortcut = x
-        x = self.norm1(x)
+        # x = self.norm1(x)
         x = x.view(B, H, W, C)
 
         # cyclic shift
@@ -230,7 +230,7 @@ class SwinAttnBlock(nn.Module):
         # FFN
 
         x = shortcut + self.drop_path(x)
-        x = self.norm2(x)
+        # x = self.norm2(x)
         x = x + self.drop_path(self.mlp(x))
 
         return x
@@ -355,10 +355,10 @@ class SwinAttn(nn.Module):
 
         x_size = (x.shape[2], x.shape[3])
         x = x.flatten(2).transpose(1, 2)
-        x = self.pre_norm(x) 
+        # x = self.pre_norm(x) 
         for layer in self.layers:
             x = layer(x, x_size)
-        x = self.norm(x)  # B L C
+        # x = self.norm(x)  # B L C
         B, HW, C = x.shape
         x = x.transpose(1, 2).view(B, C, x_size[0], x_size[1])
         return x

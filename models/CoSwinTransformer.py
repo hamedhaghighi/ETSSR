@@ -189,7 +189,7 @@ class CoSwinAttnBlock(nn.Module):
         shortcut_left , shortcut_right = x_left, x_right
 
         def norm_view_selection(x, w_ind):
-            x = self.norm1(x)
+            # x = self.norm1(x)
             x = x.view(b, h, w, c)
             x_selected = x[coords_b, coords_h, w_ind].clone() if w_ind is not None else x
             return x, x_selected
@@ -233,7 +233,8 @@ class CoSwinAttnBlock(nn.Module):
             x = torch.roll(x, shifts=(self.shift_size, self.shift_size), dims=(1, 2)) if self.shift_size > 0 else x
             x = x.view(b, n, c)
             x = shortcut + self.drop_path(x)
-            x = x + self.drop_path(self.mlp(self.norm2(x)))
+            # x = x + self.drop_path(self.mlp(self.norm2(x)))
+            x = x + self.drop_path(self.mlp(x))
             return x
 
         x_left , x_right = view_reverse_drop_mlp(out_left, shortcut_left), view_reverse_drop_mlp(out_right, shortcut_right)
@@ -308,10 +309,8 @@ class CoRSTB(nn.Module):
                     blk, x_left, x_right, d_left, d_right, x_size)
             else:
                 x_left, x_right = blk(x_left, x_right, d_left, d_right, x_size)
-        x_left = x_left.transpose(
-            1, 2).view(-1, self.dim, x_size[0], x_size[1])
-        x_right = x_right.transpose(
-            1, 2).view(-1, self.dim, x_size[0], x_size[1])
+        x_left = x_left.transpose(1, 2).view(-1, self.dim, x_size[0], x_size[1])
+        x_right = x_right.transpose(1, 2).view(-1, self.dim, x_size[0], x_size[1])
         x_left = self.conv(x_left)
         x_right = self.conv(x_right)
         x_left = x_left.flatten(2).transpose(1, 2)
@@ -383,13 +382,13 @@ class CoSwinAttn(nn.Module):
         x_size = (x_left.shape[2], x_left.shape[3])
         x_left = x_left.flatten(2).transpose(1, 2)
         x_right = x_right.flatten(2).transpose(1, 2)
-        x_left = self.pre_norm(x_left)
-        x_right = self.pre_norm(x_right)
+        # x_left = self.pre_norm(x_left)
+        # x_right = self.pre_norm(x_right)
         for layer in self.layers:
             x_left, x_right = layer(x_left, x_right, d_left, d_right, x_size)
 
-        x_left = self.norm(x_left)  # B L C
-        x_right = self.norm(x_right)
+        # x_left = self.norm(x_left)  # B L C
+        # x_right = self.norm(x_right)
         B, HW, C = x_left.shape
         x_left = x_left.transpose(1, 2).view(B, C, x_size[0], x_size[1])
         x_right = x_right.transpose(1, 2).view(B, C, x_size[0], x_size[1])
