@@ -133,8 +133,8 @@ def test(cfg):
             # plt.show()
             # test_tq.update(1)
 
-        print('env: ', env, 'psnr_left:%.2f'% np.array(psnr_left_list).mean(), 'psnr_right:%.2f' % np.array(psnr_right_list).mean())
-        print('env: ', env, 'ssim_left:%.2f'% np.array(ssim_left_list).mean(), 'ssim_right:%.2f'% np.array(ssim_right_list).mean())
+        print('env: ', env, 'psnr_left:%.3f'% np.array(psnr_left_list).mean(), 'psnr_right:%.3f' % np.array(psnr_right_list).mean())
+        print('env: ', env, 'ssim_left:%.3f'% np.array(ssim_left_list).mean(), 'ssim_right:%.3f'% np.array(ssim_right_list).mean())
 
         # save_path = './results/' + cfg.model_name + '/' + cfg.dataset
             # if not os.path.exists(save_path):
