@@ -72,13 +72,13 @@ def test(cfg):
         cfg.data_dir = os.path.join(root_dir, env)
         total_dataset = dataset.DataSetLoader(cfg, to_tensor=False)
         test_set = Subset(total_dataset, range(len(total_dataset))[-len(total_dataset)//10:])
-        test_tq = tqdm.tqdm(total=len(test_set), desc='Iter', position=3)
+        # test_tq = tqdm.tqdm(total=len(test_set), desc='Iter', position=3)
         psnr_right_list=[]
         psnr_left_list=[]
         ssim_left_list =[]
         ssim_right_list=[]
-        rand_ind_to_save = np.random.randint(0, len(test_tq))
-        for idx in range(len(test_tq)):
+        rand_ind_to_save = np.random.randint(0, len(test_set))
+        for idx in range(len(test_set)):
             HR_left, HR_right, LR_left, LR_right = test_set[idx]
             h, w, _ = LR_left.shape
             h_patch = biggest_divisior(h)
@@ -133,8 +133,8 @@ def test(cfg):
             # plt.show()
             # test_tq.update(1)
 
-        print('env: ', env, 'psnr_left:', np.array(psnr_left_list).mean(), 'psnr_right:', np.array(psnr_right_list).mean())
-        print('env: ', env, 'ssim_left:', np.array(ssim_left_list).mean(), 'ssim_right:', np.array(ssim_right_list).mean())
+        print('env: ', env, 'psnr_left:%.2f'% np.array(psnr_left_list).mean(), 'psnr_right:%.2f' % np.array(psnr_right_list).mean())
+        print('env: ', env, 'ssim_left:%.2f'% np.array(ssim_left_list).mean(), 'ssim_right:%.2f'% np.array(ssim_right_list).mean())
 
         # save_path = './results/' + cfg.model_name + '/' + cfg.dataset
             # if not os.path.exists(save_path):

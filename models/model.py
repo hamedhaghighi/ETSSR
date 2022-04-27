@@ -387,13 +387,13 @@ if __name__ == "__main__":
     # from utils import disparity_alignment
     # from StreoSwinSR import CoSwinAttn
     # from SwinTransformer import SwinAttn
-    H, W, C = 64, 96, 7
+    H, W, C = 64, 96, 3
     net = Net(upscale_factor=2, model='MDB_coswin', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
     print('   Number of params: %.2fM' % (total / 1e6))
-    print('   FLOPS: %.2fG' % (net.flop(H, W) / 1e9))
+    print('   FLOPS: %.2fT' % (net.flop(360, 640) / 1e12))
     x = torch.clamp(torch.randn((1, 7, H, W)) , min=0.0).cuda()
     exc_time = 0.0
     n_itr = 10
