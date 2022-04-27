@@ -96,9 +96,9 @@ class WindowAttention(nn.Module):
         q = q * self.scale
         attn = (q @ k.transpose(-2, -1))
 
-        # relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
-        # relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
-        # attn = attn + relative_position_bias.unsqueeze(0)
+        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
+        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
+        attn = attn + relative_position_bias.unsqueeze(0)
 
         if mask is not None:
             nW = mask.shape[0]
@@ -193,7 +193,7 @@ class SwinAttnBlock(nn.Module):
         B, L, C = x.shape
         # assert L == H * W, "input feature has wrong size"
         shortcut = x
-        # x = self.norm1(x)
+        x = self.norm1(x)
         x = x.view(B, H, W, C)
 
         # cyclic shift
@@ -230,7 +230,7 @@ class SwinAttnBlock(nn.Module):
         # FFN
 
         x = shortcut + self.drop_path(x)
-        # x = self.norm2(x)
+        x = self.norm2(x)
         x = x + self.drop_path(self.mlp(x))
 
         return x

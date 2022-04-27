@@ -56,7 +56,7 @@ def test(cfg):
     input_size = check_input_size(input_size, cfg.w_size)
     net = mine.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'mine' in cfg.model\
         else (SSR.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'swin' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
-    model_path = os.path.join(cfg.checkpoints_dir, 'modelx' + str(cfg.scale_factor) + '_best' + '.pth')
+    model_path = os.path.join(cfg.checkpoints_dir, 'modelx' + str(cfg.scale_factor) + '_' + cfg.ckpt + '.pth')
     model = torch.load(model_path, map_location={'cuda:0': cfg.device})
     model_state_dict = dict()
     for k, v in model['state_dict'].items():
@@ -68,7 +68,7 @@ def test(cfg):
     results_dir = os.path.join(cfg.checkpoints_dir, 'results')
     os.makedirs(results_dir, exist_ok=True)
 
-    for env in os.listdir(root_dir):
+    for env in sorted(os.listdir(root_dir)):
         cfg.data_dir = os.path.join(root_dir, env)
         total_dataset = dataset.DataSetLoader(cfg, to_tensor=False)
         test_set = Subset(total_dataset, range(len(total_dataset))[-len(total_dataset)//10:])
@@ -86,8 +86,8 @@ def test(cfg):
             n_h , n_w = h // h_patch, w // w_patch
             lr_left_patches = patchify_img(LR_left, h_patch, w_patch)
             lr_right_patches = patchify_img(LR_right, h_patch, w_patch)
-            batch_size = lr_left_patches.shape[0]
-            # batch_size = 2
+            # batch_size = lr_left_patches.shape[0]
+            batch_size = 2 if cfg.batch_size != -1 else lr_left_patches.shape[0]
             sr_left_list = []
             sr_right_list = []
             assert lr_left_patches.shape[0]%batch_size == 0

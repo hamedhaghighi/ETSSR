@@ -21,7 +21,7 @@ class Net(nn.Module):
         self.n_RDB = 3 if 'MDB' in model else 3
         self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
         depths = [2]
-        num_heads = [1]
+        num_heads = [4]
         if 'pam' in model :
             self.pam = PAM(64, self.n_RDB)
         elif any(x in model for x in ['coswin', 'late_fusion']):
@@ -60,7 +60,7 @@ class Net(nn.Module):
         elif 'coswin' in self.model:
             buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
             if 'coswin_wo_d' in self.model:
-                buffer_leftT, buffer_rightT = self.coswin(buffer_left, buffer_right)
+                buffer_leftT, buffer_rightT = self.coswin(buffer_leftT, buffer_rightT)
             else:
                 buffer_leftT, buffer_rightT = self.coswin(buffer_leftT, buffer_rightT, d_left, d_right)            
         elif any(x in self.model for x in ['seperate', 'independent']):
@@ -388,7 +388,7 @@ if __name__ == "__main__":
     # from StreoSwinSR import CoSwinAttn
     # from SwinTransformer import SwinAttn
     H, W, C = 64, 96, 7
-    net = Net(upscale_factor=2, model='pam_MDB', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
+    net = Net(upscale_factor=2, model='MDB_coswin', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
@@ -396,7 +396,7 @@ if __name__ == "__main__":
     print('   FLOPS: %.2fG' % (net.flop(H, W) / 1e9))
     x = torch.clamp(torch.randn((1, 7, H, W)) , min=0.0).cuda()
     exc_time = 0.0
-    n_itr = 100
+    n_itr = 10
     for _ in range(10):
         _, _ = net(x, x, 0)
     with torch.no_grad():
