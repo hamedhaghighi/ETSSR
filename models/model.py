@@ -118,12 +118,13 @@ class Net(nn.Module):
         if 'pam' in self.model:
             flop += self.pam.flop(H, W)
         elif 'coswin' in self.model:
-            flop += self.swin.flops() + self.coswin.flops()
+            flop += self.swin.flops(H, W) + self.coswin.flops(H, W)
         elif any(x in self.model for x in ['seperate', 'independent']):
-            flop += self.swin.flops()
+            flop += self.swin.flops(H, W)
         flop += 2 * (self.f_RDB.flop(N) + self.CAlayer.flop(N) + N * (128 + 1) * 64)
         flop += 2 * self.reconstruct.flop(N)
-        flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2) + (N**self.upscale_factor) * 3 * (64 * 9 + 1))
+        flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2))
+        # flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2) + (N**self.upscale_factor) * 3 * (64 * 9 + 1))
         return flop
 
 
@@ -408,7 +409,7 @@ if __name__ == "__main__":
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
     print('   Number of params: %.2fM' % (total / 1e6))
-    print('   FLOPS: %.2fT' % (net.flop(360, 640) / 1e12))
+    print('   FLOPS: %.2fT' % (net.flop(64, 96) / 1e9))
     x = torch.clamp(torch.randn((1, 7, H, W)) , min=0.0).cuda()
     exc_time = 0.0
     n_itr = 10

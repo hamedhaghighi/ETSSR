@@ -110,12 +110,13 @@ def train(train_loader, val_loader, cfg):
 
 
 def main(cfg):
-    train_set = dataset.DataSetLoader(cfg, max_data_size=cfg.max_data_size)
-    total_samples = len(train_set)
-    train_indcs = range(total_samples)[int(cfg.val_split_ratio* total_samples):]
-    val_indcs = range(total_samples)[:int(cfg.val_split_ratio * total_samples)]
-    train_dataset = Subset(train_set, train_indcs)
-    val_dataset = Subset(train_set, val_indcs)
+    total_set = dataset.DataSetLoader(cfg, max_data_size=cfg.max_data_size)
+    total_indices = range(len(total_set))
+    random.shuffle(total_indices)
+    train_indcs = total_indices[int(cfg.val_split_ratio * len(total_set)):]
+    val_indcs = total_indices[:int(cfg.val_split_ratio * len(total_set))]
+    train_dataset = Subset(total_set, train_indcs)
+    val_dataset = Subset(total_set, val_indcs)
     train_loader = DataLoader(dataset=train_dataset, num_workers=2, batch_size=cfg.batch_size, shuffle=True, drop_last=True)
     val_loader = DataLoader(dataset=val_dataset, num_workers=2, batch_size=cfg.batch_size, shuffle=False)
     train(train_loader, val_loader, cfg)

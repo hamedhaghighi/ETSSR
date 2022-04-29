@@ -260,9 +260,8 @@ class CoSwinAttnBlock(nn.Module):
         M_relaxed = torch.sum(torch.cat(M_list, 1), dim=1)
         return M_relaxed
 
-    def flops(self):
+    def flops(self, H, W):
         flops = 0
-        H, W = self.input_resolution
         # norm1
         flops += 2 * self.dim * H * W
         # W-MSA/SW-MSA
@@ -317,11 +316,10 @@ class CoRSTB(nn.Module):
         x_right = x_right.flatten(2).transpose(1, 2)
         return x_left + out_left, x_right + out_right
 
-    def flops(self):
+    def flops(self, H, W):
         flops = 0
         for block in self.blocks:
-            flops += block.flops()
-        H, W = self.input_resolution
+            flops += block.flops(H, W)
         flops += 2 * H * W * self.dim * self.dim * 9
 
         return flops
@@ -394,12 +392,11 @@ class CoSwinAttn(nn.Module):
         x_right = x_right.transpose(1, 2).view(B, C, x_size[0], x_size[1])
         return x_left, x_right
 
-    def flops(self):
+    def flops(self, H, W):
         flops = 0
         for layer in self.layers:
-            flops += layer.flops()
-        H, W = self.patches_resolution
-        flops += 4 * H * W * self.embed_dim
+            flops += layer.flops(H, W)
+        # flops += 4 * H * W * self.embed_dim
         return flops
 
 

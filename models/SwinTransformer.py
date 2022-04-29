@@ -123,7 +123,7 @@ class WindowAttention(nn.Module):
         # qkv = self.qkv(x)
         flops += N * self.dim * 3 * self.dim
         # attn = (q @ k.transpose(-2, -1))
-        flops += self.num_heads * N * (self.dim // self.num_heads) * N
+        flops += self.num_heads * N * N * (self.dim // self.num_heads)
         #  x = (attn @ v)
         flops += self.num_heads * N * N * (self.dim // self.num_heads)
         # x = self.proj(x)
@@ -239,9 +239,8 @@ class SwinAttnBlock(nn.Module):
         return f"dim={self.dim}, input_resolution={self.input_resolution}, num_heads={self.num_heads}, " \
                f"window_size={self.window_size}, shift_size={self.shift_size}, mlp_ratio={self.mlp_ratio}"
 
-    def flops(self):
+    def flops(self, H , W):
         flops = 0
-        H, W = self.input_resolution
         # norm1
         flops += self.dim * H * W
         # W-MSA/SW-MSA
@@ -291,11 +290,10 @@ class RSTB(nn.Module):
         x = x.flatten(2).transpose(1, 2)
         return x + out
 
-    def flops(self):
+    def flops(self, H , W):
         flops = 0
         for block in self.blocks:
-            flops += block.flops()
-        H, W = self.input_resolution
+            flops += block.flops(H, W)
         flops += H * W * self.dim * self.dim * 9
 
         return flops
@@ -363,12 +361,11 @@ class SwinAttn(nn.Module):
         x = x.transpose(1, 2).view(B, C, x_size[0], x_size[1])
         return x
 
-    def flops(self):
+    def flops(self, H , W):
         flops = 0
         for layer in self.layers:
-            flops += layer.flops()
-        H, W = self.patches_resolution
-        flops += 2 * H * W * self.embed_dim
+            flops += layer.flops(H, W)
+        # flops += 2 * H * W * self.embed_dim
         return flops
 
     
