@@ -111,7 +111,7 @@ def train(train_loader, val_loader, cfg):
 
 def main(cfg):
     total_set = dataset.DataSetLoader(cfg, max_data_size=cfg.max_data_size)
-    total_indices = range(len(total_set))
+    total_indices = list(range(len(total_set)))
     random.shuffle(total_indices)
     train_indcs = total_indices[int(cfg.val_split_ratio * len(total_set)):]
     val_indcs = total_indices[:int(cfg.val_split_ratio * len(total_set))]
