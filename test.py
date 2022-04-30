@@ -38,6 +38,8 @@ def biggest_divisior(n):
         if n % i == 0:
             return i
 
+def _pad(img , pad_h, pad_w):
+    return np.pad(img, ((0, pad_h),(0, pad_w),(0, 0)))
 
 class cfg_parser():
     def __init__(self, args):
@@ -72,77 +74,85 @@ def test(cfg):
     avg_psnr_right_list = []
     avg_ssim_left_list = []
     avg_ssim_right_list = []
-    for env in sorted(os.listdir(root_dir)):
-        cfg.data_dir = os.path.join(root_dir, env)
-        total_dataset = dataset.DataSetLoader(cfg, to_tensor=False)
-        test_set = Subset(total_dataset, range(len(total_dataset))[-len(total_dataset)//10:])
-        # test_tq = tqdm.tqdm(total=len(test_set), desc='Iter', position=3)
-        psnr_right_list=[]
-        psnr_left_list=[]
-        ssim_left_list =[]
-        ssim_right_list=[]
-        rand_ind_to_save = np.random.randint(0, len(test_set))
-        for idx in range(len(test_set)):
-            HR_left, HR_right, LR_left, LR_right = test_set[idx]
-            h, w, _ = LR_left.shape
-            h_patch = biggest_divisior(h)
-            w_patch = biggest_divisior(w)
-            n_h , n_w = h // h_patch, w // w_patch
-            lr_left_patches = patchify_img(LR_left, h_patch, w_patch)
-            lr_right_patches = patchify_img(LR_right, h_patch, w_patch)
-            # batch_size = lr_left_patches.shape[0]
-            batch_size = 2 if cfg.batch_size != -1 else lr_left_patches.shape[0]
-            sr_left_list = []
-            sr_right_list = []
-            assert lr_left_patches.shape[0]%batch_size == 0
-            for i in range(lr_left_patches.shape[0]//batch_size):
-                s = i * batch_size
-                e = (i+1) * batch_size
-                lr_left_patches_b, lr_right_patches_b = toTensor(lr_left_patches[s:e]), toTensor(lr_right_patches[s:e])
-                lr_left_patches_b, lr_right_patches_b = lr_left_patches_b.to(cfg.device), lr_right_patches_b.to(cfg.device)
-                with torch.no_grad():
+    indices_to_save = {'Town02':[1, 2], 'Town07':[1, 4]}
+    with torch.no_grad():
+        for env in sorted(os.listdir(root_dir)):
+            cfg.data_dir = os.path.join(root_dir, env)
+            total_dataset = dataset.DataSetLoader(cfg, to_tensor=False)
+            test_set = Subset(total_dataset, range(len(total_dataset))[-len(total_dataset)//10:])
+            # test_tq = tqdm.tqdm(total=len(test_set), desc='Iter', position=3)
+            psnr_right_list=[]
+            psnr_left_list=[]
+            ssim_left_list =[]
+            ssim_right_list=[]
+            for idx in range(len(test_set)):
+                HR_left, HR_right, LR_left, LR_right = test_set[idx]
+                h, w, _ = LR_left.shape
+                h_patch = biggest_divisior(h)
+                w_patch = biggest_divisior(w)
+                h_patch = 30
+                w_patch = 90
+                pad_h, pad_w = (h_patch - (h % h_patch))% h_patch, (w_patch - (w % w_patch))% w_patch
+                LR_left, LR_right = _pad(LR_left, pad_h, pad_w), _pad(LR_right, pad_h, pad_w)
+                HR_left, HR_right = _pad(HR_left, cfg.scale_factor * pad_h, cfg.scale_factor * pad_w), _pad(HR_right, cfg.scale_factor * pad_h, cfg.scale_factor * pad_w)
+                h, w, _ = LR_left.shape
+                n_h , n_w = h // h_patch, w // w_patch
+                lr_left_patches = patchify_img(LR_left, h_patch, w_patch)
+                lr_right_patches = patchify_img(LR_right, h_patch, w_patch)
+                hr_left_patches = patchify_img(HR_left, cfg.scale_factor * h_patch, cfg.scale_factor * w_patch)
+                hr_right_patches = patchify_img(HR_right, cfg.scale_factor * h_patch, cfg.scale_factor * w_patch)
+                # batch_size = lr_left_patches.shape[0]
+                batch_size = 2 if cfg.batch_size != -1 else lr_left_patches.shape[0]
+                sr_left_list = []
+                sr_right_list = []
+                assert lr_left_patches.shape[0]%batch_size == 0
+                for i in range(lr_left_patches.shape[0]//batch_size):
+                    s = i * batch_size
+                    e = (i+1) * batch_size
+                    lr_left_patches_b, lr_right_patches_b = toTensor(lr_left_patches[s:e]), toTensor(lr_right_patches[s:e])
+                    lr_left_patches_b, lr_right_patches_b = lr_left_patches_b.to(cfg.device), lr_right_patches_b.to(cfg.device)
                     SR_left_patches_b, SR_right_patches_b = net(lr_left_patches_b, lr_right_patches_b, is_training=0)
                     SR_left_patches_b, SR_right_patches_b = torch.clamp(SR_left_patches_b, 0, 1), torch.clamp(SR_right_patches_b, 0, 1)
-                sr_left_list.append(toNdarray(SR_left_patches_b))
-                sr_right_list.append(toNdarray(SR_right_patches_b))
-            sr_left_patches = np.concatenate(sr_left_list, axis=0)
-            sr_right_patches = np.concatenate(sr_right_list, axis=0)
+                    sr_left_list.append(toNdarray(SR_left_patches_b))
+                    sr_right_list.append(toNdarray(SR_right_patches_b))
+                sr_left_patches = np.concatenate(sr_left_list, axis=0)
+                sr_right_patches = np.concatenate(sr_right_list, axis=0)
+                for i in range(sr_left_patches.shape[0]):
+                    psnr_left = compare_psnr(hr_left_patches[i].astype('uint8'), sr_left_patches[i])
+                    psnr_right = compare_psnr(hr_right_patches[i].astype('uint8'), sr_right_patches[i])
+                    ssim_left = compare_ssim(hr_left_patches[i].astype('uint8'), sr_left_patches[i], multichannel=True)
+                    ssim_right = compare_ssim(hr_right_patches[i].astype('uint8'), sr_right_patches[i], multichannel=True)
+                    psnr_left_list.append(psnr_left)
+                    psnr_right_list.append(psnr_right)
+                    ssim_left_list.append(ssim_left)
+                    ssim_right_list.append(ssim_right)
 
-            sr_left, sr_right = unify_patches(sr_left_patches, n_h, n_w), unify_patches(sr_right_patches, n_h, n_w)
-            psnr_left = compare_psnr(HR_left.astype('uint8'), sr_left)
-            psnr_right = compare_psnr(HR_right.astype('uint8'), sr_right)
-            ssim_left = compare_ssim(HR_left.astype('uint8'), sr_left, multichannel=True)
-            ssim_right = compare_ssim(HR_right.astype('uint8'), sr_right, multichannel=True)
-            psnr_left_list.append(psnr_left)
-            psnr_right_list.append(psnr_right)
-            ssim_left_list.append(ssim_left)
-            ssim_right_list.append(ssim_right)
-            if idx == rand_ind_to_save:
-                
-                def save_array(array, name):
-                    im =Image.fromarray(array)
-                    img_path = os.path.join(results_dir,'{}_{}_img_{}.png'.format(name, env, idx))
-                    im.save(img_path)
+                sr_left, sr_right = unify_patches(sr_left_patches, n_h, n_w), unify_patches(sr_right_patches, n_h, n_w)
+                sr_left, sr_right = sr_left[:, :cfg.scale_factor * cfg.input_resolution[1]], sr_right[:, :cfg.scale_factor * cfg.input_resolution[1]]
+                if env in indices_to_save and idx in indices_to_save[env]:
+                    def save_array(array, name):
+                        im =Image.fromarray(array)
+                        img_path = os.path.join(results_dir,'{}_{}_img_{}.png'.format(name, env, idx))
+                        im.save(img_path)
+                    save_array(sr_left[..., :3].astype('uint8'), 'sr_left')
+                    save_array(sr_right[..., :3].astype('uint8'), 'sr_right')
+                    save_array(LR_left[..., :3].astype('uint8'), 'lr_left')
+                    save_array(LR_right[..., :3].astype('uint8'), 'lr_right')
+                    save_array(HR_left[..., :3].astype('uint8'), 'hr_left')
+                    save_array(HR_right[..., :3].astype('uint8'), 'hr_right')
+                # plt.figure(0)
+                # plt.imshow(sr_left[..., :3].astype('uint8'))
+                # plt.figure(1)
+                # plt.imshow(sr_right[..., :3].astype('uint8'))
+                # plt.show()
+                # test_tq.update(1)
 
-                save_array(sr_left[..., :3].astype('uint8'), 'sr_left')
-                save_array(sr_right[..., :3].astype('uint8'), 'sr_right')
-                save_array(LR_left[..., :3].astype('uint8'), 'lr_left')
-                save_array(LR_right[..., :3].astype('uint8'), 'lr_right')
-                save_array(HR_left[..., :3].astype('uint8'), 'hr_left')
-                save_array(HR_right[..., :3].astype('uint8'), 'hr_right')
-            # plt.figure(0)
-            # plt.imshow(sr_left[..., :3].astype('uint8'))
-            # plt.figure(1)
-            # plt.imshow(sr_right[..., :3].astype('uint8'))
-            # plt.show()
-            # test_tq.update(1)
-
-        print('env: ', env, 'psnr_left:%.3f'% np.array(psnr_left_list).mean(), 'psnr_right:%.3f' % np.array(psnr_right_list).mean())
-        print('env: ', env, 'ssim_left:%.3f'% np.array(ssim_left_list).mean(), 'ssim_right:%.3f'% np.array(ssim_right_list).mean())
-        avg_psnr_left_list.extend(psnr_left_list)
-        avg_psnr_right_list.extend(psnr_right_list)
-        avg_ssim_left_list.extend(ssim_left_list)
-        avg_ssim_right_list.extend(ssim_right_list)
+            print('env: ', env, 'psnr_left:%.3f'% np.array(psnr_left_list).mean(), 'psnr_right:%.3f' % np.array(psnr_right_list).mean())
+            print('env: ', env, 'ssim_left:%.3f'% np.array(ssim_left_list).mean(), 'ssim_right:%.3f'% np.array(ssim_right_list).mean())
+            avg_psnr_left_list.extend(psnr_left_list)
+            avg_psnr_right_list.extend(psnr_right_list)
+            avg_ssim_left_list.extend(ssim_left_list)
+            avg_ssim_right_list.extend(ssim_right_list)
 
     print('psnr_left:%.3f'% np.array(avg_psnr_left_list).mean(), 'psnr_right:%.3f' % np.array(avg_psnr_right_list).mean())
     print('ssim_left:%.3f'% np.array(avg_ssim_left_list).mean(), 'ssim_right:%.3f'% np.array(avg_ssim_right_list).mean())
