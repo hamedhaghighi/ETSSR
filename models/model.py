@@ -6,7 +6,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
-sys.path.append('/home/oem/Documents/PhD_proj/iPASSR')
+try:
+    sys.path.append('/home/oem/Documents/PhD_proj/iPASSR')
+except:
+    sys.path.append('/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Documents/StereoSR')
 from utils import disparity_alignment
 from models.CoSwinTransformer import CoSwinAttn
 from models.SwinTransformer import SwinAttn
@@ -124,8 +127,8 @@ class Net(nn.Module):
             flop += self.swin.flops(H, W)
         flop += 2 * (self.f_RDB.flop(N) + self.CAlayer.flop(N) + N * (128 + 1) * 64)
         flop += 2 * self.reconstruct.flop(N)
+        flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2) + N * 3 * (64 * 9 + 1))
         flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2))
-        # flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2) + (N**self.upscale_factor) * 3 * (64 * 9 + 1))
         return flop
 
 
@@ -404,19 +407,19 @@ if __name__ == "__main__":
     # from utils import disparity_alignment
     # from StreoSwinSR import CoSwinAttn
     # from SwinTransformer import SwinAttn
-    H, W, C = 64, 96, 3
+    H, W, C = 360, 640, 3
     net = Net(upscale_factor=2, model='MDB_coswin', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
     print('   Number of params: %.2fM' % (total / 1e6))
-    print('   FLOPS: %.2fT' % (net.flop(64, 96) / 1e9))
+    print('   FLOPS: %.2fG' % (net.flop(H, W) / 1e9))
     x = torch.clamp(torch.randn((1, 7, H, W)) , min=0.0).cuda()
     exc_time = 0.0
     n_itr = 10
-    for _ in range(10):
-        _, _ = net(x, x, 0)
     with torch.no_grad():
+        for _ in range(10):
+            _, _ = net(x, x, 0)
         for _ in range(n_itr):
             starter.record()
             _, _ = net(x, x, 0)

@@ -13,4 +13,4 @@ external.hpp
 log/
 configs/
 results/
-checkpoints_2
+checkpoints*
