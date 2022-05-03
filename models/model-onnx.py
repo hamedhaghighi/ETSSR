@@ -406,7 +406,9 @@ if __name__ == "__main__":
     # from StreoSwinSR import CoSwinAttn
     # from SwinTransformer import SwinAttn
     H, W, C = 360, 640, 3
-    net = Net(upscale_factor=2, model='MDB_coswin', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
+    from torch2trt import torch2trt
+
+    net = Net(upscale_factor=4, model='MDB_coswin', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
@@ -414,7 +416,9 @@ if __name__ == "__main__":
     print('   FLOPS: %.2fG' % (net.flop(H, W) / 1e9))
     x = torch.clamp(torch.randn((1, 7, H, W)) , min=0.0).cuda()
     input_names = ['x_left', 'x_right']
-    input_names = ['x_left', 'x_right']
+    output_names = ['sr_left', 'sr_right']
+    with torch.no_grad():
+        model_trt = torch2trt(net, [x, x])
     exc_time = 0.0
     n_itr = 10
     with torch.no_grad():

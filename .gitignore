@@ -14,3 +14,4 @@ log/
 configs/
 results/
 checkpoints*
+*.onnx
