@@ -279,7 +279,7 @@ class PRDB(nn.Module):
 class CALayer(nn.Module):
     def __init__(self, channel):
         super(CALayer, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        # self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.channel = channel
         self.conv_du = nn.Sequential(
                 nn.Conv2d(channel, channel//16, 1, padding=0, bias=True),
@@ -288,7 +288,8 @@ class CALayer(nn.Module):
                 nn.Sigmoid())
 
     def forward(self, x):
-        y = self.avg_pool(x)
+        y = torch.mean(x, dim=(2, 3), keepdim=True)
+        # y = self.avg_pool(x)
         y = self.conv_du(y)
         return x * y
     
