@@ -89,16 +89,16 @@ class WindowAttention(nn.Module):
             mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
         """
         B_, N, C = x.shape
-        qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C //self.num_heads).permute(2, 0, 3, 1, 4)
+        qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C //self.num_heads).permute(0, 2, 3, 1, 4)
         # make torchscript happy (cannot use tensor as tuple)
-        q, k, v = qkv[0], qkv[1], qkv[2]
+        q, k, v = qkv[:, 0], qkv[:, 1], qkv[:, 2]
 
         q = q * self.scale
-        attn = (q @ k.transpose(-2, -1))
+        attn = (q @ k.permute(0, 1, 3, 2))
 
-        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
-        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
-        attn = attn + relative_position_bias.unsqueeze(0)
+        # relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
+        # relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
+        # attn = attn + relative_position_bias.unsqueeze(0)
 
         if mask is not None:
             nW = mask.shape[0]
@@ -109,7 +109,7 @@ class WindowAttention(nn.Module):
             attn = self.softmax(attn)
 
 
-        x = (attn @ v).transpose(1, 2).reshape(B_, N, C)
+        x = (attn @ v).permute(0, 2, 1, 3).reshape(B_, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
@@ -285,9 +285,9 @@ class RSTB(nn.Module):
                 x = checkpoint.checkpoint(blk, x, x_size)
             else:
                 x = blk(x, x_size)
-        x = x.transpose(1, 2).view(-1, self.dim, x_size[0], x_size[1])
+        x = x.permute(0, 2, 1).view(-1, self.dim, x_size[0], x_size[1])
         x = self.conv(x)
-        x = x.flatten(2).transpose(1, 2)
+        x = x.flatten(2).permute(0, 2, 1)
         return x + out
 
     def flops(self, H , W):
@@ -352,13 +352,13 @@ class SwinAttn(nn.Module):
     def forward(self, x):
 
         x_size = (x.shape[2], x.shape[3])
-        x = x.flatten(2).transpose(1, 2)
+        x = x.flatten(2).permute(0, 2, 1)
         # x = self.pre_norm(x) 
         for layer in self.layers:
             x = layer(x, x_size)
         # x = self.norm(x)  # B L C
         B, HW, C = x.shape
-        x = x.transpose(1, 2).view(B, C, x_size[0], x_size[1])
+        x = x.permute(0, 2, 1).view(B, C, x_size[0], x_size[1])
         return x
 
     def flops(self, H , W):

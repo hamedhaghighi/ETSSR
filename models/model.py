@@ -416,15 +416,15 @@ if __name__ == "__main__":
     input_names = ['x_left', 'x_right']
     input_names = ['x_left', 'x_right']
     exc_time = 0.0
-    n_itr = 10
+    n_itr = 100
     with torch.no_grad():
         for _ in range(10):
             _, _ = net(x, x, 0)
         for _ in range(n_itr):
-            with torch.cuda.amp.autocast():
-                starter.record()
-                _, _ = net(x, x, 0)
-                ender.record()
+            # with torch.cuda.amp.autocast():
+            starter.record()
+            _, _ = net(x, x, 0)
+            ender.record()
             torch.cuda.synchronize()
             elps = starter.elapsed_time(ender)
             exc_time += elps

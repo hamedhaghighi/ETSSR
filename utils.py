@@ -1,4 +1,5 @@
 import torch
+import tensorrt.tensorrt as trt
 
 
 def check_disparity(LR_left, LR_right):

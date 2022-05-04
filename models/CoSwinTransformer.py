@@ -72,21 +72,19 @@ class CoWindowAttention(nn.Module):
 
         """
         b, n, c = x.shape
-        q = self.q(x).reshape(b, n, 1, self.num_heads, c //
-                              self.num_heads).permute(2, 0, 3, 1, 4)
-        kv = self.kv(x_selected).reshape(b, n, 2, self.num_heads,
-                                         c//self.num_heads).permute(2, 0, 3, 1, 4)
-        q, k, v = q[0], kv[0], kv[1]  # b , nh, n, c//nh
+        q = self.q(x).reshape(b, n, 1, self.num_heads, c //self.num_heads).permute(0, 2, 3, 1, 4)
+        kv = self.kv(x_selected).reshape(b, n, 2, self.num_heads, c//self.num_heads).permute(0, 2, 3, 1, 4)
+        q, k, v = q[:, 0], kv[:, 0], kv[:, 1]  # b , nh, n, c//nh
 
         # make torchscript happy (cannot use tensor as tuple)
 
         q = q * self.scale
-        attn = (q @ k.transpose(-2, -1))
+        attn = (q @ k.permute(0, 1, 3, 2))
 
-        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
-        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
+        # relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
+        # relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
 
-        attn = attn + relative_position_bias.unsqueeze(0)
+        # attn = attn + relative_position_bias.unsqueeze(0)
 
         if mask is not None:
             nW = mask.shape[0]
@@ -97,7 +95,7 @@ class CoWindowAttention(nn.Module):
         else:
             attn = self.softmax(attn)
 
-        xT = (attn @ v).transpose(1, 2).reshape(b, n, c)
+        xT = (attn @ v).permute(0, 2, 1, 3).reshape(b, n, c)
         xT = self.proj(xT)
         xT = self.proj_drop(xT)
         return xT, attn
@@ -209,7 +207,8 @@ class CoSwinAttnBlock(nn.Module):
         x_rightT, attn_l2r = self.attn(x_right_windows, x_left_selected_windows, mask=attn_mask)
 
         def create_apply_mask(attn1, attn2):
-            M_relaxed = self.M_Relax(attn1, num_pixels=2)
+            # M_relaxed = self.M_Relax(attn1, num_pixels=2)
+            M_relaxed = attn1
             msk = M_relaxed.reshape(-1, 1, ww) @ attn2.permute(0, 1, 3, 2).reshape(-1, ww, 1)
             msk = msk.squeeze().reshape(-1, self.num_heads, ww, 1).permute(0, 2, 1, 3).detach()  # b nh
             return torch.tanh(5 * msk)
@@ -308,12 +307,12 @@ class CoRSTB(nn.Module):
                     blk, x_left, x_right, d_left, d_right, x_size)
             else:
                 x_left, x_right = blk(x_left, x_right, d_left, d_right, x_size)
-        x_left = x_left.transpose(1, 2).view(-1, self.dim, x_size[0], x_size[1])
-        x_right = x_right.transpose(1, 2).view(-1, self.dim, x_size[0], x_size[1])
+        x_left = x_left.permute(0, 2, 1).view(-1, self.dim, x_size[0], x_size[1])
+        x_right = x_right.permute(0, 2, 1).view(-1, self.dim, x_size[0], x_size[1])
         x_left = self.conv(x_left)
         x_right = self.conv(x_right)
-        x_left = x_left.flatten(2).transpose(1, 2)
-        x_right = x_right.flatten(2).transpose(1, 2)
+        x_left = x_left.flatten(2).permute(0, 2, 1)
+        x_right = x_right.flatten(2).permute(0, 2, 1)
         return x_left + out_left, x_right + out_right
 
     def flops(self, H, W):
@@ -378,8 +377,8 @@ class CoSwinAttn(nn.Module):
     def forward(self, x_left, x_right, d_left=None, d_right=None):
 
         x_size = (x_left.shape[2], x_left.shape[3])
-        x_left = x_left.flatten(2).transpose(1, 2)
-        x_right = x_right.flatten(2).transpose(1, 2)
+        x_left = x_left.flatten(2).permute(0, 2, 1)
+        x_right = x_right.flatten(2).permute(0, 2, 1)
         # x_left = self.pre_norm(x_left)
         # x_right = self.pre_norm(x_right)
         for layer in self.layers:
@@ -388,8 +387,8 @@ class CoSwinAttn(nn.Module):
         # x_left = self.norm(x_left)  # B L C
         # x_right = self.norm(x_right)
         B, HW, C = x_left.shape
-        x_left = x_left.transpose(1, 2).view(B, C, x_size[0], x_size[1])
-        x_right = x_right.transpose(1, 2).view(B, C, x_size[0], x_size[1])
+        x_left = x_left.permute(0, 2, 1).view(B, C, x_size[0], x_size[1])
+        x_right = x_right.permute(0, 2, 1).view(B, C, x_size[0], x_size[1])
         return x_left, x_right
 
     def flops(self, H, W):
@@ -469,8 +468,8 @@ class SwinAttnInterleaved(nn.Module):
     def forward(self, x_left, x_right, d_left, d_right):
 
         x_size = (x_left.shape[2], x_left.shape[3])
-        x_left = x_left.flatten(2).transpose(1, 2)
-        x_right = x_right.flatten(2).transpose(1, 2)
+        x_left = x_left.flatten(2).permute(0, 2, 1)
+        x_right = x_right.flatten(2).permute(0, 2, 1)
         # x_left = self.pre_norm(x_left)
         # x_right = self.pre_norm(x_right)
         for dlayer, mlayer in zip(self.disjoint_layers, self.merge_layers):

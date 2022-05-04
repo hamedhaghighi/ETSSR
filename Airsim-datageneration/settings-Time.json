@@ -10,8 +10,8 @@
           "CaptureSettings": [
             {
               "ImageType": 0,
-              "Width": 1280,
-              "Height": 720
+              "Width": 640,
+              "Height": 360
             }
           ],
           "Roll": 0.0,
@@ -24,8 +24,8 @@
           "CaptureSettings": [
             {
               "ImageType": 0,
-              "Width": 1280,
-              "Height": 720
+              "Width": 640,
+              "Height": 360
             }
           ],
           "Roll": 0.0,

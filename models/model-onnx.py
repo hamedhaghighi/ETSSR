@@ -418,18 +418,30 @@ if __name__ == "__main__":
     x = torch.clamp(torch.randn((1, 7, H, W)) , min=0.0).cuda()
     input_names = ['x_left', 'x_right']
     output_names = ['sr_left', 'sr_right']
+    
     with torch.no_grad():
+        # torch.onnx.export(net, 
+        #           (x, x),
+        #           "MDB_coswin.onnx",
+        #           verbose=False,
+        #           input_names=input_names,
+        #           output_names=output_names,
+        #           export_params=True,opset_version=11
+        #           )
         model_trt = torch2trt(net, [x, x])
-    exc_time = 0.0
-    n_itr = 10
-    with torch.no_grad():
+        exc_time = 0.0
+        n_itr = 100
         for _ in range(10):
-            _, _ = net(x, x, 0)
+            a, b = model_trt(x, x, 0)
+            c, d = net(x , x ,0)
+            print('output error :', (((torch.abs(a - c)).mean() + (torch.abs(b - d)).mean() ).cpu().numpy() /2.0))
+            import pdb; pdb.set_trace()
+            # assert torch.equal(a, c) and torch.equal(b, d)
         for _ in range(n_itr):
-            with torch.cuda.amp.autocast():
-                starter.record()
-                _, _ = net(x, x, 0)
-                ender.record()
+            # with torch.cuda.amp.autocast():
+            starter.record()
+            _, _ = model_trt(x, x, 0)
+            ender.record()
             torch.cuda.synchronize()
             elps = starter.elapsed_time(ender)
             exc_time += elps
