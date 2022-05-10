@@ -11,6 +11,7 @@ sys.path.append('/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Documents/StereoSR')
 from utils import disparity_alignment
 from models.CoSwinTransformer import CoSwinAttn
 from models.SwinTransformer import SwinAttn
+from timm.models.layers import trunc_normal_
 from dataset import toNdarray
 
 class Net(nn.Module):
@@ -38,7 +39,7 @@ class Net(nn.Module):
         self.reconstruct = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
         # self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
         self.upscale = nn.Sequential(nn.Conv2d(64, 3, 3, 1, 1, bias=True), nn.Conv2d(3, 3 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor))
-
+        self.apply(self._init_weights)
 
     def forward(self, x_left, x_right, is_training = 0):
         if not 'pam' in self.model:
@@ -136,6 +137,15 @@ class Net(nn.Module):
             mod_pad_w = (self.w_size - w % self.w_size) % self.w_size
             x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
             return x, mod_pad_h, mod_pad_w
+ 
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            trunc_normal_(m.weight, std=.02)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
 
 
 
@@ -406,7 +416,7 @@ if __name__ == "__main__":
     # from StreoSwinSR import CoSwinAttn
     # from SwinTransformer import SwinAttn
     H, W, C = 360, 640, 3
-    net = Net(upscale_factor=2, model='MDB_coswin', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
+    net = Net(upscale_factor=4, model='rdb_pam', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
@@ -421,10 +431,9 @@ if __name__ == "__main__":
         for _ in range(10):
             _, _ = net(x, x, 0)
         for _ in range(n_itr):
-            with torch.cuda.amp.autocast():
-                starter.record()
-                _, _ = net(x, x, 0)
-                ender.record()
+            starter.record()
+            _, _ = net(x, x, 0)
+            ender.record()
             torch.cuda.synchronize()
             elps = starter.elapsed_time(ender)
             exc_time += elps
