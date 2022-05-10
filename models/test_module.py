@@ -16,14 +16,20 @@ class Net(nn.Module):
 
 
 if __name__ == "__main__":
-   H, W, C = 360, 640, 3
-   from torch2trt import torch2trt
-   net = Net().cuda()
-   starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-   net.train(False)
-   x = torch.clamp(torch.randn((1, 64, H, W)) , min=0.0).cuda()
-   with torch.no_grad():
+    H, W, C = 360, 640, 3
+    from torch2trt import torch2trt
+    import torch_tensorrt
+
+    net = Net().cuda()
+    starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+    net.train(False)
+    x = torch.clamp(torch.randn((1, 64, H, W)) , min=0.0).cuda()
+    with torch.no_grad():
         model_trt = torch2trt(net, [x], max_batch_size=1)
+        script_model = torch.jit.script(net)
+        # benchmark(script_model, x)
+        inputs = [torch_tensorrt.Input((1, 64, H, W), dtype=torch.float)]
+        trt_script_module = torch_tensorrt.compile(script_model, inputs=inputs)
         exc_time = 0.0
         n_itr = 100
         for _ in range(10):
@@ -34,7 +40,8 @@ if __name__ == "__main__":
         for _ in range(n_itr):
             # with torch.cuda.amp.autocast():
             starter.record()
-            _ = model_trt(x)
+            _ = trt_script_module(x)
+            # _ = model_trt(x)
             # _ = net(x)
             ender.record()
             torch.cuda.synchronize()

@@ -1,12 +1,11 @@
 import torch.nn as nn
 import torch
-from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+from timm.models.layers import DropPath, to_2tuple
 from utils import disparity_alignment
 from models.SwinTransformer import RSTB, Mlp
-import torch.utils.checkpoint as checkpoint
+from typing import Tuple
 
-
-def window_partition(x, window_size):
+def window_partition(x, window_size: int):
 
     B, H, W, C = x.shape
     x = x.view(B, H // window_size, window_size, W // window_size, window_size, C)
@@ -15,9 +14,9 @@ def window_partition(x, window_size):
     return windows
 
 
-def window_reverse(windows, window_size, H, W):
+def window_reverse(windows, window_size: int, H: int, W: int):
 
-    B = int(windows.shape[0] / (H * W / window_size / window_size))
+    B = int(windows.shape[0] / (H * W // window_size // window_size))
     x = windows.view(B, H // window_size, W // window_size,
                      window_size, window_size, -1)
     x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, H, W, -1)
@@ -35,8 +34,7 @@ class CoWindowAttention(nn.Module):
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5
         # define a parameter table of relative position bias
-        self.relative_position_bias_table = nn.Parameter(torch.zeros(
-            (2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
+        self.relative_position_bias_table = nn.Parameter(torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
 
         # get pair-wise relative position index for each token inside the window
         coords_h = torch.arange(self.window_size[0])
@@ -61,10 +59,10 @@ class CoWindowAttention(nn.Module):
 
         self.proj_drop = nn.Dropout(proj_drop)
 
-        trunc_normal_(self.relative_position_bias_table, std=.02)
+        # trunc_normal_(self.relative_position_bias_table, std=.02)
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, x, x_selected, mask=None):
+    def forward(self, x, x_selected, mask=torch.empty(1)):
         """
         Args:
             x: input features with shape of (num_windows*B, N, C)
@@ -86,7 +84,7 @@ class CoWindowAttention(nn.Module):
 
         # attn = attn + relative_position_bias.unsqueeze(0)
 
-        if mask is not None:
+        if mask != torch.empty(1).to(mask):
             nW = mask.shape[0]
             attn = attn.view(b // nW, nW, self.num_heads, n,
                              n) + mask.unsqueeze(1).unsqueeze(0)
@@ -148,11 +146,11 @@ class CoSwinAttnBlock(nn.Module):
         if self.shift_size > 0:
             attn_mask = self.calculate_mask(self.input_resolution)
         else:
-            attn_mask = None
+            attn_mask = torch.empty(1)
 
         self.register_buffer("attn_mask", attn_mask, persistent=False)
 
-    def calculate_mask(self, x_size):
+    def calculate_mask(self, x_size: Tuple[int, int]):
         # calculate attention mask for SW-MSA
         H, W = x_size
         img_mask = torch.zeros((1, H, W, 1))  # 1 H W 1
@@ -178,7 +176,7 @@ class CoSwinAttnBlock(nn.Module):
 
         return attn_mask
 
-    def forward(self, x_left, x_right, d_left, d_right, x_size):
+    def forward(self, x_left, x_right, d_left, d_right, x_size: Tuple[int, int]):
         h, w = x_size
         b, n, c = x_left.shape
         ww = self.window_size * self.window_size
@@ -186,57 +184,71 @@ class CoSwinAttnBlock(nn.Module):
         # assert L == H * W, "input feature has wrong size"
         shortcut_left , shortcut_right = x_left, x_right
 
-        def norm_view_selection(x, w_ind):
-            x = self.norm1(x)
-            x = x.view(b, h, w, c)
-            x_selected = x[coords_b, coords_h, w_ind].clone() if w_ind is not None else x
-            return x, x_selected
-            
-        x_left, x_left_selected = norm_view_selection(x_left, l2r_w)
-        x_right, x_right_selected = norm_view_selection(x_right, r2l_w)
+        x_left, x_right = self.norm1(x_left), self.norm1(x_right)
+        x_left, x_right = x_left.view(b, h, w, c), x_right.view(b, h, w, c)
+        x_left_selected = x_left.clone()
+        x_right_selected = x_right.clone()
+        
+        if self.shift_size > 0:
+            shifted_x_left = torch.roll(x_left, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+            shifted_x_right = torch.roll(x_right, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+            shifted_x_left_selected = torch.roll(x_left_selected, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+            shifted_x_right_selected = torch.roll(x_right_selected, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+        else:
+            shifted_x_left = x_left
+            shifted_x_right = x_right
+            shifted_x_left_selected = x_left_selected
+            shifted_x_right_selected = x_right_selected
 
-        def shift_partition_view(x):
-            x = torch.roll(x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2)) if self.shift_size > 0 else x
-            x = window_partition(x, self.window_size).view(-1, self.window_size * self.window_size, c)
-            return x
-        x_left_windows , x_right_windows = shift_partition_view(x_left), shift_partition_view(x_right)
-        x_left_selected_windows , x_right_selected_windows = shift_partition_view(x_left_selected), shift_partition_view(x_right_selected)
+        # partition windows
+        # nW*B, window_size, window_size, C
+        x_left_windows = window_partition(shifted_x_left, self.window_size)
+        x_right_windows = window_partition(shifted_x_right, self.window_size)
+        x_left_selected_windows = window_partition(shifted_x_left_selected, self.window_size)
+        x_right_selected_windows = window_partition(shifted_x_right_selected, self.window_size)
+        # nW*B, window_size*window_size, C
+        x_left_windows = x_left_windows.view(-1, self.window_size * self.window_size, c)
+        x_right_windows = x_right_windows.view(-1, self.window_size * self.window_size, c)
+        x_left_selected_windows = x_left_selected_windows.view(-1, self.window_size * self.window_size, c)
+        x_right_selected_windows = x_right_selected_windows.view(-1, self.window_size * self.window_size, c)
+
+
         # W-MSA/SW-MSA (to be compatible for testing on images whose shapes are the multiple of window size
-        attn_mask = self.attn_mask if self.input_resolution == x_size else self.calculate_mask(x_size).to(x_left.device)
+        # attn_mask = self.attn_mask if self.input_resolution == x_size else self.calculate_mask(x_size).to(x_left.device)
+        attn_mask = self.attn_mask
         x_leftT, attn_r2l = self.attn(x_left_windows, x_right_selected_windows, mask=attn_mask)
         x_rightT, attn_l2r = self.attn(x_right_windows, x_left_selected_windows, mask=attn_mask)
-
-        def create_apply_mask(attn1, attn2):
-            # M_relaxed = self.M_Relax(attn1, num_pixels=2)
-            M_relaxed = attn1
-            msk = M_relaxed.reshape(-1, 1, ww) @ attn2.permute(0, 1, 3, 2).reshape(-1, ww, 1)
-            msk = msk.squeeze().reshape(-1, self.num_heads, ww, 1).permute(0, 2, 1, 3).detach()  # b nh
-            return torch.tanh(5 * msk)
-            
-        ## masks
-        m_left= create_apply_mask(attn_r2l, attn_l2r)
-        m_right = create_apply_mask(attn_l2r, attn_r2l)
+        
 
         
-        def matmul_mask(x, m):
-            return (x.reshape(x.shape[0], ww, self.num_heads, c//self.num_heads) * m).reshape(x.shape[0], ww, c)
 
-        # out_left = matmul_mask(x_left_windows, (1 - m_left)) + matmul_mask(x_leftT, m_left)
-        # out_right = matmul_mask(x_right_windows, (1 - m_right)) + matmul_mask(x_rightT, m_right)
         out_left = self.fuse(torch.cat([x_left_windows, x_leftT], dim=-1))
         out_right = self.fuse(torch.cat([x_right_windows, x_rightT], dim=-1))
 
-        def view_reverse_drop_mlp(x, shortcut):
-            x = x.view(-1, self.window_size, self.window_size, c)
-            x = window_reverse(x, self.window_size, h, w)  # B H' W' C
-            x = torch.roll(x, shifts=(self.shift_size, self.shift_size), dims=(1, 2)) if self.shift_size > 0 else x
-            x = x.view(b, n, c)
-            x = shortcut + self.drop_path(x)
-            x = x + self.drop_path(self.mlp(self.norm2(x)))
-            # x = x + self.drop_path(self.mlp(x))
-            return x
+        # merge windows
+        out_left = out_left.view(-1, self.window_size, self.window_size, c)
+        out_right = out_right.view(-1, self.window_size, self.window_size, c)
+        shifted_x_left = window_reverse(out_left, self.window_size, h, w)  # B H' W' C
+        shifted_x_right = window_reverse(out_right, self.window_size, h, w)  # B H' W' C
 
-        x_left , x_right = view_reverse_drop_mlp(out_left, shortcut_left), view_reverse_drop_mlp(out_right, shortcut_right)
+        # reverse cyclic shift
+        if self.shift_size > 0:
+            x_left = torch.roll(shifted_x_left, shifts=(
+                self.shift_size, self.shift_size), dims=(1, 2))
+            x_right = torch.roll(shifted_x_right, shifts=(
+                self.shift_size, self.shift_size), dims=(1, 2))
+        else:
+            x_left = shifted_x_left
+            x_right = shifted_x_right
+
+        x_left = x_left.view(b, n, c)
+        x_right = x_right.view(b, n, c)
+
+        # FFN
+        x_left = shortcut_left + self.drop_path(x_left)
+        x_right = shortcut_right + self.drop_path(x_right)
+        x_left = x_left + self.drop_path(self.mlp(self.norm2(x_left)))
+        x_right = x_right + self.drop_path(self.mlp(self.norm2(x_right)))
 
         return x_left, x_right
 
@@ -298,15 +310,11 @@ class CoRSTB(nn.Module):
 
         self.conv = nn.Conv2d(dim, dim, 3, 1, 1)
 
-    def forward(self, x_left, x_right, d_left, d_right, x_size):
+    def forward(self, x_left, x_right, d_left, d_right, x_size: Tuple[int, int]):
         out_left = x_left
         out_right = x_right
         for blk in self.blocks:
-            if self.use_checkpoint:
-                x_left, x_right = checkpoint.checkpoint(
-                    blk, x_left, x_right, d_left, d_right, x_size)
-            else:
-                x_left, x_right = blk(x_left, x_right, d_left, d_right, x_size)
+            x_left, x_right = blk(x_left, x_right, d_left, d_right, x_size)
         x_left = x_left.permute(0, 2, 1).view(-1, self.dim, x_size[0], x_size[1])
         x_right = x_right.permute(0, 2, 1).view(-1, self.dim, x_size[0], x_size[1])
         x_left = self.conv(x_left)
@@ -374,7 +382,7 @@ class CoSwinAttn(nn.Module):
             self.layers.append(layer)
         self.norm = norm_layer(self.num_features)
 
-    def forward(self, x_left, x_right, d_left=None, d_right=None):
+    def forward(self, x_left, x_right, d_left: torch.Tensor, d_right: torch.Tensor):
 
         x_size = (x_left.shape[2], x_left.shape[3])
         x_left = x_left.flatten(2).permute(0, 2, 1)

@@ -1,5 +1,3 @@
-import math
-# from timm.models.layers import trunc_normal_
 from skimage.metrics import structural_similarity as compare_ssim
 from skimage.metrics import peak_signal_noise_ratio as compare_psnr
 import sys
@@ -13,7 +11,7 @@ from utils import disparity_alignment
 from models.CoSwinTransformer import CoSwinAttn
 from models.SwinTransformer import SwinAttn
 from dataset import toNdarray
-
+import math
 
 class Net(nn.Module):
     def __init__(self, upscale_factor, img_size, model, input_channel=3, w_size=8, device='cpu'):
@@ -24,62 +22,69 @@ class Net(nn.Module):
         self.model = model
         self.w_size = w_size
         self.init_feature = nn.Conv2d(self.input_channel, 64, 3, 1, 1, bias=True)
-        self.n_RDB = 3 if 'MDB' in model else 3
-        self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
-        depths = [2]
-        num_heads = [4]
-        if 'pam' in model :
-            self.pam = PAM(64, self.n_RDB)
-        elif any(x in model for x in ['coswin', 'late_fusion']):
-            self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=[1], embed_dim=64, num_heads=num_heads, mlp_ratio=2)
-            self.coswin = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[1], embed_dim=64, num_heads=num_heads, mlp_ratio=2)
+        depths = [1 ,1]
+        num_heads = [4, 4]
+        self.deep_feature = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
+        # self.co_feature = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
+        self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
         self.f_RDB = RDB(G0=128, C=4, G=32)
         self.CAlayer = CALayer(128)
         self.fusion = nn.Sequential(self.f_RDB, self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
-        self.reconstruct = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
+        self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
         self.upscale = nn.Sequential(nn.Conv2d(64, 3, 3, 1, 1, bias=True), nn.Conv2d(3, 3 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor))
         self.apply(self._init_weights)
 
 
     def forward(self, x_left, x_right):
-        b, c, h, w = x_left.shape
+        # if not 'pam' in self.model:
+        #     x_left, mod_pad_h, mod_pad_w = self.check_image_size(x_left)
+        #     x_right, _, _ = self.check_image_size(x_right)
+        # else:
+        #     mod_pad_h, mod_pad_w = 0, 0
+        # b, c, h, w = x_left.shape
         d_left = x_left[:, 3]
         d_right = x_right[:, 3]
 
         output_size = [int(math.floor(float(x_left.size(i + 2)) * self.f_uf)) for i in range(2)]
         x_left_upscale= torch._C._nn.upsample_bilinear2d(x_left[:, :3], output_size, False, self.f_uf)
         x_right_upscale= torch._C._nn.upsample_bilinear2d(x_right[:, :3], output_size, False, self.f_uf)
+        # x_left_upscale = F.interpolate(x_left[:, :3], scale_factor=self.f_uf, mode='bilinear', align_corners=False)
+        # x_right_upscale = F.interpolate(x_right[:, :3], scale_factor=self.f_uf, mode='bilinear', align_corners=False)
         buffer_left = self.init_feature(x_left)
         buffer_right = self.init_feature(x_right)
-        buffer_left, catfea_left = self.deep_feature(buffer_left)
-        buffer_right, catfea_right = self.deep_feature(buffer_right)
+        buffer_left = self.deep_feature(buffer_left)
+        buffer_right = self.deep_feature(buffer_right)
         # if 'pam' in self.model:
-        # buffer_leftT, buffer_rightT = self.pam(buffer_left, buffer_right, catfea_left, catfea_right)
+        #     buffer_leftT, buffer_rightT = self.pam(buffer_left, buffer_right, catfea_left, catfea_right)
         # elif 'coswin' in self.model:
-        buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
-        buffer_leftT, buffer_rightT = self.coswin(buffer_leftT, buffer_rightT, d_left, d_right)                
+        # buffer_leftT, buffer_rightT = self.co_feature(buffer_left), self.co_feature(buffer_right)
+        buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right, d_left, d_right)                
+        # elif 'seperate' in self.model or 'independent' in self.model:
+        # buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
         buffer_leftF, buffer_rightF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1)), self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
         
-        buffer_leftF, _ = self.reconstruct(buffer_leftF)
-        buffer_rightF, _ = self.reconstruct(buffer_rightF)
+        buffer_leftF = self.reconstruct(buffer_leftF)
+        buffer_rightF = self.reconstruct(buffer_rightF)
+        # if 'late_fusion' in self.model:
+        #     buffer_leftF, buffer_rightF = self.swin(buffer_leftF), self.swin(buffer_rightF)
+        #     buffer_leftF, buffer_rightF = self.coswin(buffer_leftF, buffer_rightF, d_left, d_right)
         out_left = self.upscale(buffer_leftF) + x_left_upscale
         out_right = self.upscale(buffer_rightF) + x_right_upscale
+        # out_left = self.upscale(buffer_leftF)
+        # out_right = self.upscale(buffer_rightF)
         return out_left, out_right
-
+        # mod_h = -mod_pad_h * self.upscale_factor if (not 'pam' in self.model and mod_pad_h != 0) else None
+        # mod_w = -mod_pad_w * self.upscale_factor if (not 'pam' in self.model and mod_pad_w != 0) else None
+        # return out_left[..., :mod_h, :mod_w], out_right[..., :mod_h, :mod_w]
 
     def flop(self, H, W):
         N = H * W
         flop = 0
         flop += 2 * ((self.input_channel * 9 + 1) * N * 64) # adding 1 for bias
-        flop += 2 * self.deep_feature.flop(N)
-        if 'pam' in self.model:
-            flop += self.pam.flop(H, W)
-        elif 'coswin' in self.model:
-            flop += self.swin.flops(H, W) + self.coswin.flops(H, W)
-        elif any(x in self.model for x in ['seperate', 'independent']):
-            flop += self.swin.flops(H, W)
+        flop += 2 * self.deep_feature.flops(H, W)
+        flop += self.co_feature.flops(H, W)
         flop += 2 * (self.f_RDB.flop(N) + self.CAlayer.flop(N) + N * (128 + 1) * 64)
-        flop += 2 * self.reconstruct.flop(N)
+        flop += 2 * self.reconstruct.flops(H, W)
         flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2) + N * 3 * (64 * 9 + 1))
         flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2))
         return flop
@@ -97,19 +102,10 @@ class Net(nn.Module):
         return x, mod_pad_h, mod_pad_w
 
     def _init_weights(self, m):
-        if any(isinstance(m, mm) for mm in [nn.Conv2d, nn.Linear, nn.Conv1d, nn.LayerNorm, nn.BatchNorm2d]):
+        if any(isinstance(m , mm) for mm in [nn.Conv2d, nn.Linear, nn.Conv1d, nn.LayerNorm, nn.BatchNorm2d]):
             nn.init.constant_(m.weight, 0.0)
             if m.bias is not None:
                 nn.init.constant_(m.bias, 0.0)
-    # def _init_weights(self, m):
-    #     if isinstance(m, nn.Linear):
-    #         trunc_normal_(m.weight, std=.02)
-    #         if isinstance(m, nn.Linear) and m.bias is not None:
-    #             nn.init.constant_(m.bias, 0)
-    #     elif isinstance(m, nn.LayerNorm):
-    #         nn.init.constant_(m.bias, 0)
-    #         nn.init.constant_(m.weight, 1.0)
-
 
 
 class one_conv(nn.Module):
@@ -282,7 +278,7 @@ class ResB(nn.Module):
             nn.LeakyReLU(0.1, inplace=True),
             nn.Conv2d(channels, channels, 3, 1, 1, groups=4, bias=True),
         )
-    def forward(self, x):
+    def forward(self,x):
         out = self.body(x)
         return out + x
 
@@ -296,13 +292,13 @@ class PAM(nn.Module):
         super(PAM, self).__init__()
         self.channel = channels
         self.n_RDB = n_RDB
-        self.bq = nn.Conv2d(n_RDB*channels, channels, 1, 1, 0, bias=True)
-        self.bs = nn.Conv2d(n_RDB*channels, channels, 1, 1, 0, bias=True)
+        self.bq = nn.Conv2d(n_RDB*channels, channels, 1, 1, 0, groups=4, bias=True)
+        self.bs = nn.Conv2d(n_RDB*channels, channels, 1, 1, 0, groups=4, bias=True)
         self.softmax = nn.Softmax(-1)
         self.rb = ResB(n_RDB * channels)
         self.bn = nn.BatchNorm2d(n_RDB * channels)
 
-    def forward(self, x_left, x_right, catfea_left, catfea_right):
+    def __call__(self, x_left, x_right, catfea_left, catfea_right, is_training = 0):
         b, c0, h0, w0 = x_left.shape
         Q = self.bq(self.rb(self.bn(catfea_left)))
         b, c, h, w = Q.shape
@@ -310,30 +306,42 @@ class PAM(nn.Module):
         K = self.bs(self.rb(self.bn(catfea_right)))
         K = K - torch.mean(K, 3).unsqueeze(3).repeat(1, 1, 1, w)
 
-        score = Q.permute(0, 2, 3, 1).reshape(-1, w, c) @ K.permute(0, 2, 1, 3).reshape(-1, c, w)                    # (B*H) * C * Wr
+        score = torch.bmm(Q.permute(0, 2, 3, 1).contiguous().view(-1, w, c),                    # (B*H) * Wl * C
+                          K.permute(0, 2, 1, 3).contiguous().view(-1, c, w))                    # (B*H) * C * Wr
         # (B*H) * Wl * Wr
         M_right_to_left = self.softmax(score)
         # (B*H) * Wr * Wl
         M_left_to_right = self.softmax(score.permute(0, 2, 1))
 
-        # M_right_to_left_relaxed = M_Relax(M_right_to_left, num_pixels=2)
-        # M_left_to_right_relaxed = M_Relax(M_left_to_right, num_pixels=2)
-        M_right_to_left_relaxed = M_right_to_left.clone()
-        M_left_to_right_relaxed = M_left_to_right.clone()
-        # V_left = (M_right_to_left_relaxed.reshape(-1, 1, w) @ M_left_to_right.permute(0, 2, 1).reshape(-1, w, 1)).reshape(b, 1, h, w)  # (B*H*Wr) * Wl * 1
-        # V_right = (M_left_to_right_relaxed.reshape(-1, 1, w) @ M_right_to_left.permute(0, 2, 1).reshape(-1, w, 1)).reshape(b, 1, h, w)   # (B*H*Wr) * Wl * 1
-        V_left = M_right_to_left_relaxed.mean(1).unsqueeze(0)
-        V_right = M_left_to_right_relaxed.mean(1).unsqueeze(0)
+        M_right_to_left_relaxed = M_Relax(M_right_to_left, num_pixels=2)
+        V_left = torch.bmm(M_right_to_left_relaxed.contiguous().view(-1, w).unsqueeze(1),
+                           M_left_to_right.permute(
+                               0, 2, 1).contiguous().view(-1, w).unsqueeze(2)
+                           ).detach().contiguous().view(b, 1, h, w)  # (B*H*Wr) * Wl * 1
+        M_left_to_right_relaxed = M_Relax(M_left_to_right, num_pixels=2)
+        V_right = torch.bmm(M_left_to_right_relaxed.contiguous().view(-1, w).unsqueeze(1),  # (B*H*Wl) * 1 * Wr
+                            M_right_to_left.permute(
+                                0, 2, 1).contiguous().view(-1, w).unsqueeze(2)
+                            ).detach().contiguous().view(b, 1, h, w)   # (B*H*Wr) * Wl * 1
+
         V_left_tanh = torch.tanh(5 * V_left)
         V_right_tanh = torch.tanh(5 * V_right)
 
-        x_leftT = (M_right_to_left @ x_right.permute(0, 2, 3, 1).reshape(-1, w0, c0)).reshape(b, h0, w0, c0).permute(0, 3, 1, 2)  # B, C0, H0, W0
-        x_rightT = (M_left_to_right @ x_left.permute(0, 2, 3, 1).reshape(-1, w0, c0)).reshape(b, h0, w0, c0).permute(0, 3, 1, 2)  # B, C0, H0, W0
-        out_left = x_left * (1 - V_left_tanh.repeat(1, c0, 1, 1)) + x_leftT * V_left_tanh.repeat(1, c0, 1, 1)
-        out_right = x_right * (1 - V_right_tanh.repeat(1, c0, 1, 1)) + x_rightT * V_right_tanh.repeat(1, c0, 1, 1)
+        x_leftT = torch.bmm(M_right_to_left, x_right.permute(0, 2, 3, 1).contiguous().view(-1, w0, c0)
+                            ).contiguous().view(b, h0, w0, c0).permute(0, 3, 1, 2)  # B, C0, H0, W0
+        x_rightT = torch.bmm(M_left_to_right, x_left.permute(0, 2, 3, 1).contiguous().view(-1, w0, c0)
+                             ).contiguous().view(b, h0, w0, c0).permute(0, 3, 1, 2)  # B, C0, H0, W0
+        out_left = x_left * (1 - V_left_tanh.repeat(1, c0, 1, 1)) + \
+            x_leftT * V_left_tanh.repeat(1, c0, 1, 1)
+        out_right = x_right * (1 - V_right_tanh.repeat(1, c0, 1, 1)) + \
+            x_rightT * V_right_tanh.repeat(1, c0, 1, 1)
 
-        
-        return out_left, out_right
+        if is_training == 1:
+            return out_left, out_right, \
+                (M_right_to_left.contiguous().view(b, h, w, w), M_left_to_right.contiguous().view(b, h, w, w)),\
+                (V_left_tanh, V_right_tanh)
+        if is_training == 0:
+            return out_left, out_right
 
     def flop(self, H, W):
         N = H * W
@@ -346,38 +354,20 @@ class PAM(nn.Module):
         return flop
 
 
-def M_Relax(M, num_pixels :int =2):
+def M_Relax(M, num_pixels):
     _, u, v = M.shape
     M_list = []
     M_list.append(M.unsqueeze(1))
-    i = 0
-    pad_M = F.pad(M[:, :-1-i, :], pad=(0, 0, i+1, 0))
-    M_list.append(pad_M.unsqueeze(1))
-    i = 1
-    pad_M = F.pad(M[:, :-1-i, :], pad=(0, 0, i+1, 0))
-    M_list.append(pad_M.unsqueeze(1))
-    i = 0
-    pad_M = F.pad(M[:, i+1:, :], pad=(0, 0, 0, i+1))
-    M_list.append(pad_M.unsqueeze(1))
-    i = 1
-    pad_M = F.pad(M[:, i+1:, :], pad=(0, 0, 0, i+1))
-    M_list.append(pad_M.unsqueeze(1))
+    for i in range(num_pixels):
+        pad = nn.ZeroPad2d(padding=(0, 0, i+1, 0))
+        pad_M = pad(M[:, :-1-i, :])
+        M_list.append(pad_M.unsqueeze(1))
+    for i in range(num_pixels):
+        pad = nn.ZeroPad2d(padding=(0, 0, 0, i+1))
+        pad_M = pad(M[:, i+1:, :])
+        M_list.append(pad_M.unsqueeze(1))
     M_relaxed = torch.sum(torch.cat(M_list, 1), dim=1)
     return M_relaxed
-# def M_Relax(M, num_pixels):
-#     _, u, v = M.shape
-#     M_list = []
-#     M_list.append(M.unsqueeze(1))
-#     for i in range(num_pixels):
-#         pad = nn.ZeroPad2d(padding=(0, 0, i+1, 0))
-#         pad_M = pad(M[:, :-1-i, :])
-#         M_list.append(pad_M.unsqueeze(1))
-#     for i in range(num_pixels):
-#         pad = nn.ZeroPad2d(padding=(0, 0, 0, i+1))
-#         pad_M = pad(M[:, i+1:, :])
-#         M_list.append(pad_M.unsqueeze(1))
-#     M_relaxed = torch.sum(torch.cat(M_list, 1), dim=1)
-#     return M_relaxed
 
 
 def benchmark(model, x, y):
@@ -385,7 +375,7 @@ def benchmark(model, x, y):
     n_itr = 100
     left, right = None, None
     for _ in range(10):
-        _, _ = model(x , y)
+        _, _ = model(x, y)
     for _ in range(n_itr):
         # with torch.cuda.amp.autocast():
         starter.record()
@@ -401,8 +391,10 @@ def benchmark(model, x, y):
 
 
 if __name__ == "__main__":
-    
-    B, H, W, C = 1, 360, 320, 7
+    # from utils import disparity_alignment
+    # from StreoSwinSR import CoSwinAttn
+    # from SwinTransformer import SwinAttn
+    B, H, W, C = 1, 176, 640, 7
     import onnx
     import torch_tensorrt
     import torch_tensorrt.logging as torchtrt_logging
@@ -416,6 +408,8 @@ if __name__ == "__main__":
     print('   FLOPS: %.2fG' % (net.flop(H, W) / 1e9))
     x = torch.randn((B, C, H, W)).cuda()
     y = torch.randn((B, C, H, W)).cuda()
+    input_names = ['x_left', 'x_right']
+    output_names = ['sr_left', 'sr_right']
     with torch.no_grad():
         g_left , g_right = net(x, y)
         # torch.onnx.export(net, 
@@ -426,12 +420,14 @@ if __name__ == "__main__":
         #           output_names=output_names,
         #           export_params=True,opset_version=11
         #           )
+
+        inputs = [torch_tensorrt.Input((B, C, H, W), dtype=torch.half), torch_tensorrt.Input((B, C, H, W), dtype=torch.half)]
         jit_model = torch.jit.script(net)
-        inputs = [torch_tensorrt.Input((B, C, H, W), dtype=torch.float32), torch_tensorrt.Input((B, C, H, W), dtype=torch.float32)]
         trt_script_module = torch_tensorrt.compile(jit_model, inputs=inputs, enabled_precisions=[torch.half])
+        # trt_script_module = torch_tensorrt.compile(jit_model, inputs=inputs)
         # benchmark(model_trt, x)
         benchmark(net, x, y)
-        p_left, p_right = benchmark(trt_script_module, x, y)
+        p_left, p_right = benchmark(trt_script_module, x.half(), y.half())
         print('error:', ((g_left - p_left).abs().mean().cpu().numpy() + (g_right - p_right).abs().mean().cpu().numpy())/2.0)
         # import pdb; pdb.set_trace()
         

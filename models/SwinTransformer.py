@@ -8,9 +8,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
-from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+from timm.models.layers import DropPath, to_2tuple
 from utils import disparity_alignment
-    
+from typing import Tuple
+
 class Mlp(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
@@ -30,21 +31,21 @@ class Mlp(nn.Module):
         return x
 
 
-def window_partition(x, window_size):
+def window_partition(x, window_size: int):
 
     B, H, W, C = x.shape
     x = x.view(B, H // window_size, window_size, W // window_size, window_size, C)
     windows = x.permute(0, 1, 3, 2, 4, 5).contiguous(
-    ).view(-1, window_size, window_size, C)
+    ).reshape(-1, window_size, window_size, C)
     return windows
 
 
-def window_reverse(windows, window_size, H, W):
+def window_reverse(windows, window_size: int, H :int, W: int):
 
-    B = int(windows.shape[0] / (H * W / window_size / window_size))
+    B = int(windows.shape[0] / (H * W // window_size // window_size))
     x = windows.view(B, H // window_size, W // window_size,
                      window_size, window_size, -1)
-    x = x.permute(0, 1, 3, 2, 4, 5).contiguous().view(B, H, W, -1)
+    x = x.permute(0, 1, 3, 2, 4, 5).contiguous().reshape(B, H, W, -1)
     return x
 
 
@@ -79,10 +80,10 @@ class WindowAttention(nn.Module):
 
         self.proj_drop = nn.Dropout(proj_drop)
 
-        trunc_normal_(self.relative_position_bias_table, std=.02)
+        # trunc_normal_(self.relative_position_bias_table, std=.02)
         self.softmax = nn.Softmax(dim=-1)
 
-    def forward(self, x, mask=None):
+    def forward(self, x, mask=torch.empty(1)):
         """
         Args:
             x: input features with shape of (num_windows*B, N, C)
@@ -99,8 +100,7 @@ class WindowAttention(nn.Module):
         # relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
         # relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
         # attn = attn + relative_position_bias.unsqueeze(0)
-
-        if mask is not None:
+        if mask is not torch.empty(1):
             nW = mask.shape[0]
             attn = attn.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
             attn = attn.view(-1, self.num_heads, N, N)
@@ -160,11 +160,11 @@ class SwinAttnBlock(nn.Module):
         if self.shift_size > 0:
             attn_mask = self.calculate_mask(self.input_resolution)
         else:
-            attn_mask = None
+            attn_mask = torch.empty(1)
 
         self.register_buffer("attn_mask", attn_mask, persistent=False)
 
-    def calculate_mask(self, x_size):
+    def calculate_mask(self, x_size: Tuple[int, int]):
         # calculate attention mask for SW-MSA
         H, W = x_size
         img_mask = torch.zeros((1, H, W, 1))  # 1 H W 1
@@ -188,7 +188,7 @@ class SwinAttnBlock(nn.Module):
 
         return attn_mask
 
-    def forward(self, x, x_size):
+    def forward(self, x, x_size: Tuple[int, int]):
         H, W = x_size
         B, L, C = x.shape
         # assert L == H * W, "input feature has wrong size"
@@ -197,11 +197,11 @@ class SwinAttnBlock(nn.Module):
         x = x.view(B, H, W, C)
 
         # cyclic shift
-        if self.shift_size > 0:
-            shifted_x = torch.roll(
-                x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
-        else:
-            shifted_x = x
+        # if self.shift_size > 0:
+        #     shifted_x = torch.roll(
+        #         x, shifts=(-self.shift_size, -self.shift_size), dims=(1, 2))
+        # else:
+        shifted_x = x
 
         # partition windows
         # nW*B, window_size, window_size, C
@@ -209,11 +209,11 @@ class SwinAttnBlock(nn.Module):
         # nW*B, window_size*window_size, C
         x_windows = x_windows.view(-1, self.window_size * self.window_size, C)
         # W-MSA/SW-MSA (to be compatible for testing on images whose shapes are the multiple of window size
-        if self.input_resolution == x_size:
+        # if self.input_resolution == x_size:
             # nW*B, window_size*window_size, C
-            attn_windows = self.attn(x_windows, mask=self.attn_mask)
-        else:
-            attn_windows = self.attn(x_windows, mask=self.calculate_mask(x_size).to(x.device))
+        attn_windows = self.attn(x_windows, mask=self.attn_mask)
+        # else:
+            # attn_windows = self.attn(x_windows, mask=self.calculate_mask(x_size).to(x.device))
 
 
         # merge windows
@@ -222,10 +222,11 @@ class SwinAttnBlock(nn.Module):
         shifted_x = window_reverse(attn_windows, self.window_size, H, W)  # B H' W' C
 
         # reverse cyclic shift
-        if self.shift_size > 0:
-            x = torch.roll(shifted_x, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
-        else:
-            x = shifted_x
+        # if self.shift_size > 0:
+        #     x = torch.roll(shifted_x, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
+        # else:
+        x = shifted_x
+        
         x = x.view(B, H * W, C)
         # FFN
 
@@ -278,13 +279,10 @@ class RSTB(nn.Module):
 
         self.conv = nn.Conv2d(dim, dim, 3, 1, 1)
 
-    def forward(self, x, x_size):
+    def forward(self, x, x_size: Tuple[int, int]):
         out = x
         for blk in self.blocks:
-            if self.use_checkpoint:
-                x = checkpoint.checkpoint(blk, x, x_size)
-            else:
-                x = blk(x, x_size)
+            x = blk(x, x_size)
         x = x.permute(0, 2, 1).view(-1, self.dim, x_size[0], x_size[1])
         x = self.conv(x)
         x = x.flatten(2).permute(0, 2, 1)
