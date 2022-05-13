@@ -101,23 +101,20 @@ def test(cfg):
                 w_patch = biggest_divisior(w)
                 h_patch = 30
                 w_patch = 90
-                pad_h, pad_w = (h_patch - (h % h_patch)
-                                ) % h_patch, (w_patch - (w % w_patch)) % w_patch
+                pad_h, pad_w = (h_patch - (h % h_patch)) % h_patch, (w_patch - (w % w_patch)) % w_patch
                 LR_left, LR_right = _pad(LR_left, pad_h, pad_w), _pad(
                     LR_right, pad_h, pad_w)
-                HR_left, HR_right = _pad(HR_left, cfg.scale_factor * pad_h, cfg.scale_factor * pad_w), _pad(
-                    HR_right, cfg.scale_factor * pad_h, cfg.scale_factor * pad_w)
                 h, w, _ = LR_left.shape
                 n_h, n_w = h // h_patch, w // w_patch
                 lr_left_patches = patchify_img(LR_left, h_patch, w_patch)
                 lr_right_patches = patchify_img(LR_right, h_patch, w_patch)
-                hr_left_patches = patchify_img(
-                    HR_left, cfg.scale_factor * h_patch, cfg.scale_factor * w_patch)
-                hr_right_patches = patchify_img(
-                    HR_right, cfg.scale_factor * h_patch, cfg.scale_factor * w_patch)
+                if cfg.local_metric:
+                    HR_left, HR_right = _pad(HR_left, cfg.scale_factor * pad_h, cfg.scale_factor * pad_w), _pad(
+                        HR_right, cfg.scale_factor * pad_h, cfg.scale_factor * pad_w)
+                    hr_left_patches = patchify_img(HR_left, cfg.scale_factor * h_patch, cfg.scale_factor * w_patch)
+                    hr_right_patches = patchify_img(HR_right, cfg.scale_factor * h_patch, cfg.scale_factor * w_patch)
                 # batch_size = lr_left_patches.shape[0]
-                batch_size = 2 if cfg.batch_size != - \
-                    1 else lr_left_patches.shape[0]
+                batch_size = 2 if cfg.batch_size != -1 else lr_left_patches.shape[0]
                 sr_left_list = []
                 sr_right_list = []
                 assert lr_left_patches.shape[0] % batch_size == 0

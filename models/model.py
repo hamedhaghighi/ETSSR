@@ -27,7 +27,10 @@ class Net(nn.Module):
         depths = [2]
         num_heads = [4]
         if 'pam' in model :
-            self.pam = PAM(64, self.n_RDB)
+            if 'light' in model:
+                self.pam = LightPAM(64, self.n_RDB, w_size)
+            else:
+                self.pam = PAM(64, self.n_RDB)
         elif any(x in model for x in ['coswin', 'late_fusion']):
             self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=[1], embed_dim=64, num_heads=num_heads, mlp_ratio=2)
             self.coswin = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[1], embed_dim=64, num_heads=num_heads, mlp_ratio=2)
@@ -41,7 +44,7 @@ class Net(nn.Module):
         #self.apply(self._init_weights)
 
     def forward(self, x_left, x_right, is_training = 0):
-        if not 'pam' in self.model:
+        if not 'pam' in self.model or 'lightpam' in self.model:
             x_left, mod_pad_h, mod_pad_w = self.check_image_size(x_left)
             x_right, _, _ = self.check_image_size(x_right)
         b, c, h, w = x_left.shape
@@ -81,8 +84,8 @@ class Net(nn.Module):
             buffer_leftF, buffer_rightF = self.coswin(buffer_leftF, buffer_rightF, d_left, d_right)
         out_left = self.upscale(buffer_leftF) + x_left_upscale
         out_right = self.upscale(buffer_rightF) + x_right_upscale
-        mod_h = -mod_pad_h * self.upscale_factor if (not 'pam' in self.model and mod_pad_h != 0) else None
-        mod_w = -mod_pad_w * self.upscale_factor if (not 'pam' in self.model and mod_pad_w != 0) else None
+        mod_h = -mod_pad_h * self.upscale_factor if ((not 'pam' in self.model or 'lightpam' in self.model) and mod_pad_h != 0) else None
+        mod_w = -mod_pad_w * self.upscale_factor if ((not 'pam' in self.model or 'lightpam' in self.model) and mod_pad_w != 0) else None
         return out_left[..., :mod_h, :mod_w], out_right[..., :mod_h, :mod_w]
 
     def get_losses(self):
@@ -370,6 +373,78 @@ class PAM(nn.Module):
         x_leftT = torch.bmm(M_right_to_left, x_right.permute(0, 2, 3, 1).contiguous().view(-1, w0, c0)
                             ).contiguous().view(b, h0, w0, c0).permute(0, 3, 1, 2)  # B, C0, H0, W0
         x_rightT = torch.bmm(M_left_to_right, x_left.permute(0, 2, 3, 1).contiguous().view(-1, w0, c0)
+                             ).contiguous().view(b, h0, w0, c0).permute(0, 3, 1, 2)  # B, C0, H0, W0
+        out_left = x_left * (1 - V_left_tanh.repeat(1, c0, 1, 1)) + \
+            x_leftT * V_left_tanh.repeat(1, c0, 1, 1)
+        out_right = x_right * (1 - V_right_tanh.repeat(1, c0, 1, 1)) + \
+            x_rightT * V_right_tanh.repeat(1, c0, 1, 1)
+
+        if is_training == 1:
+            return out_left, out_right, \
+                (M_right_to_left.contiguous().view(b, h, w, w), M_left_to_right.contiguous().view(b, h, w, w)),\
+                (V_left_tanh, V_right_tanh)
+        if is_training == 0:
+            return out_left, out_right
+
+    def flop(self, H, W):
+        N = H * W
+        flop = 0
+        flop += 2 * self.rb.flop(N)
+        flop += 2 * N * self.channel * (self.n_RDB * self.channel + 1) * (1/4)
+        flop += H * (W**2) * self.channel
+        # flop += 2 * H * W
+        flop += 2 * H * (W**2) * self.channel
+        return flop
+
+
+class LightPAM(nn.Module):
+
+    def __init__(self, channels, n_RDB, w_size):
+        super(LightPAM, self).__init__()
+        self.channel = channels
+        self.w_size = w_size
+        self.n_RDB = n_RDB
+        self.bq = nn.Conv2d(n_RDB*channels, channels, 1,
+                            1, 0, groups=4, bias=True)
+        self.bs = nn.Conv2d(n_RDB*channels, channels, 1,
+                            1, 0, groups=4, bias=True)
+        self.softmax = nn.Softmax(-1)
+        self.rb = ResB(n_RDB * channels)
+        self.bn = nn.BatchNorm2d(n_RDB * channels)
+
+    def __call__(self, x_left, x_right, catfea_left, catfea_right, is_training=0):
+        w_size = self.w_size
+        b, c0, h0, w0 = x_left.shape
+        Q = self.bq(self.rb(self.bn(catfea_left)))
+        b, c, h, w = Q.shape
+        Q = Q - torch.mean(Q, 3).unsqueeze(3).repeat(1, 1, 1, w)
+        K = self.bs(self.rb(self.bn(catfea_right)))
+        K = K - torch.mean(K, 3).unsqueeze(3).repeat(1, 1, 1, w)
+        
+        score = torch.bmm(Q.permute(0, 2, 3, 1).contiguous().view(-1, w_size, c),                    # (B*H) * Wl * C
+                          K.permute(0, 2, 1, 3).contiguous().view(-1, c, w_size))                    # (B*H) * C * Wr
+        # (B*H) * Wl * Wr
+        M_right_to_left = self.softmax(score)
+        # (B*H) * Wr * Wl
+        M_left_to_right = self.softmax(score.permute(0, 2, 1))
+
+        M_right_to_left_relaxed = M_Relax(M_right_to_left, num_pixels=2)
+        V_left = torch.bmm(M_right_to_left_relaxed.contiguous().view(-1, w_size).unsqueeze(1),
+                           M_left_to_right.permute(
+                               0, 2, 1).contiguous().view(-1, w_size).unsqueeze(2)
+                           ).detach().contiguous().view(b, 1, h, w)  # (B*H*Wr) * Wl * 1
+        M_left_to_right_relaxed = M_Relax(M_left_to_right, num_pixels=2)
+        V_right = torch.bmm(M_left_to_right_relaxed.contiguous().view(-1, w_size).unsqueeze(1),  # (B*H*Wl) * 1 * Wr
+                            M_right_to_left.permute(
+                                0, 2, 1).contiguous().view(-1, w_size).unsqueeze(2)
+                            ).detach().contiguous().view(b, 1, h, w)   # (B*H*Wr) * Wl * 1
+
+        V_left_tanh = torch.tanh(5 * V_left)
+        V_right_tanh = torch.tanh(5 * V_right)
+
+        x_leftT = torch.bmm(M_right_to_left, x_right.permute(0, 2, 3, 1).contiguous().view(-1, w_size, c0)
+                            ).contiguous().view(b, h0, w0, c0).permute(0, 3, 1, 2)  # B, C0, H0, W0
+        x_rightT = torch.bmm(M_left_to_right, x_left.permute(0, 2, 3, 1).contiguous().view(-1, w_size, c0)
                              ).contiguous().view(b, h0, w0, c0).permute(0, 3, 1, 2)  # B, C0, H0, W0
         out_left = x_left * (1 - V_left_tanh.repeat(1, c0, 1, 1)) + \
             x_leftT * V_left_tanh.repeat(1, c0, 1, 1)
