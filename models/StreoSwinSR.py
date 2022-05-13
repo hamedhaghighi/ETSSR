@@ -11,7 +11,7 @@ from torchvision import transforms
 import torch.utils.checkpoint as checkpoint
 import sys
 sys.path.append('/home/oem/Documents/PhD_proj/iPASSR')
-
+sys.path.append('/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Documents/StereoSR')
 from timm.models.layers import trunc_normal_
 
 import time
@@ -32,8 +32,8 @@ class Net(nn.Module):
         self.upscale_factor = upscale_factor
         self.img_size = img_size
         self.init_feature = nn.Conv2d(input_channel, embed_dim, 3, 1, 1, bias=True)
-        depths = [2 ,2]
-        num_heads = [4, 4]
+        depths = [1]
+        num_heads = [4]
         if 'swin_interleaved' in self.model:
             self.deep_feature = SwinAttnInterleaved(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
         else:
@@ -45,7 +45,8 @@ class Net(nn.Module):
             self.CAlayer = CALayer(embed_dim * 2)
             self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(embed_dim * 2, embed_dim, kernel_size=1, stride=1, padding=0, bias=True))
             self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
-        self.upscale = nn.Sequential(nn.Conv2d(embed_dim, embed_dim * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(embed_dim, 3, 3, 1, 1, bias=True))
+        self.upscale = nn.Sequential(nn.Conv2d(64, 3, 3, 1, 1, bias=True), nn.Conv2d(3, 3 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor))
+
         self.apply(self._init_weights)
 
     def forward(self, x_left, x_right, is_training = 0):
@@ -117,24 +118,23 @@ class Net(nn.Module):
         x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
         return x, mod_pad_h, mod_pad_w
 
-    def flop(self):
-        H , W = self.img_size
+    def flop(self, H, W):
         N = H * W
         flop = 0
         # init feature
         flop += 2 * ((self.input_channel * 9 + 1) * N * 64) # adding 1 for bias
         if self.model == 'swin_interleaved':
-            flop += self.deep_feature.flops()
+            flop += self.deep_feature.flops(H, W)
         else:
-            flop += 2 * self.deep_feature.flops()
+            flop += 2 * self.deep_feature.flops(H, W)
             if self.model == 'swin_pam':
                 flop += self.co_feature.flop(H, W)
             elif self.model == 'all_swin':
-                flop += self.co_feature.flops()
-            flop += 2 * self.deep_feature.flops()
+                flop += self.co_feature.flops(H, W)
+            flop += 2 * self.deep_feature.flops(H, W)
             flop += 2 * (self.CAlayer.flop(N) + N * (128 + 1) * 64)
-            flop += 2 * self.reconstruct.flops()
-        flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2) + (N**self.upscale_factor) * 3 * (64 * 9 + 1))
+            flop += 2 * self.reconstruct.flops(H, W)
+        flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2) + (N) * 3 * (64 * 9 + 1))
         return flop
 
 
@@ -254,14 +254,14 @@ def M_Relax(M, num_pixels):
 
 
 if __name__ == "__main__":
-    input_shape = (32, 96)
+    input_shape = (360, 640)
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-    net = Net(upscale_factor=2, img_size=input_shape, model='light_all_swin', input_channel=10, w_size=8).cuda()
+    net = Net(upscale_factor=4, img_size=input_shape, model='all_swin', input_channel=3, w_size=8).cuda()
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
-    x = torch.clamp(torch.randn((1, 10, input_shape[0], input_shape[1])) , min=0.0).cuda()
+    x = torch.clamp(torch.randn((1, 7, input_shape[0], input_shape[1])) , min=0.0).cuda()
     print('   Number of params: %.2fM' % (total / 1e6))
-    print('   FLOPS: %.2fG' % (net.flop() / 1e9))
+    print('   FLOPS: %.2fG' % (net.flop(input_shape[0], input_shape[1]) / 1e9))
     exc_time = 0.0
     n_itr = 10
     for _ in range(10):
