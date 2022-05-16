@@ -1,3 +1,4 @@
+from copy import deepcopy
 from torch.utils.data import DataLoader
 from torch.utils.data import Subset
 import argparse
@@ -15,6 +16,9 @@ import tqdm
 import yaml
 import os
 import random
+from dataset import toTensor, toNdarray
+from skimage.metrics import structural_similarity as compare_ssim
+from skimage.metrics import peak_signal_noise_ratio as compare_psnr
 
 def modify_opt_for_fast_test(opt):
     opt.n_epochs = 2
@@ -35,6 +39,8 @@ class cfg_parser():
             setattr(self, k, v)
         if args.data_dir != '':
             self.data_dir = args.data_dir
+        if args.test_data_dir != '':
+            self.test_data_dir = args.test_data_dir
         self.fast_test = args.fast_test
         self.cfg_path = args.cfg
 
@@ -44,18 +50,17 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
     loss_list = defaultdict(list)
     tq = tqdm.tqdm(total=n_batch, desc='Iter', position=3)
     avg_sr_loss = None
+    net.train(True) if phase == 'train' else net.train(False)
     for _ in range(len(tq)):
         HR_left, HR_right, LR_left, LR_right = next(dl_iter)
         HR_left, HR_right, LR_left, LR_right = HR_left.to(cfg.device), HR_right.to(cfg.device), LR_left.to(cfg.device), LR_right.to(cfg.device)
         # check_disparity(LR_left.cpu(), LR_right.cpu())
         if phase == 'train':
-            net.train(True)
             loss = net.calc_loss(LR_left, LR_right, HR_left, HR_right, cfg)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
         else:
-            net.train(False)
             with torch.no_grad():
                 loss = net.calc_loss(LR_left, LR_right, HR_left, HR_right, cfg, is_train=False)
         for k, v in net.get_losses().items():
@@ -69,10 +74,57 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
         idx_step = idx_step + 1 if phase == 'train' else idx_step
     
     if phase == 'val':
+        avg_psnr_left_list = []
+        avg_psnr_right_list = []
+        avg_ssim_left_list = []
+        avg_ssim_right_list = []
+        message = ''
+        for env in sorted(os.listdir(cfg.test_data_dir)):
+            t_cfg = deepcopy(cfg)
+            t_cfg.test_data_dir = os.path.join(cfg.test_data_dir, env)
+            total_dataset = dataset.DataSetLoader(t_cfg, to_tensor=False, test_for_train=True)
+            test_set = Subset(total_dataset, range(len(total_dataset))[-len(total_dataset)//20:])
+            psnr_right_list = []
+            psnr_left_list = []
+            ssim_left_list = []
+            ssim_right_list = []
+            for idx in range(len(test_set)):
+                HR_left, HR_right, LR_left, LR_right = test_set[idx]
+                # HR_left, HR_right, LR_left, LR_right = HR_left[:120,:360], HR_right[:120,:360], LR_left[:30,:90], LR_right[:30,:90]
+                h, w, _ = LR_left.shape
+                batch_size = 1
+                lr_left, lr_right = toTensor(LR_left).to(cfg.device).unsqueeze(0), toTensor(LR_right).to(cfg.device).unsqueeze(0)
+                with torch.no_grad():
+                    SR_left, SR_right = net(lr_left, lr_right, is_training=0)
+                SR_left, SR_right = toNdarray(torch.clamp(SR_left, 0, 1)).squeeze(), toNdarray(torch.clamp(SR_right, 0, 1)).squeeze()
+
+                psnr_left = compare_psnr(HR_left[..., :3].astype('uint8'), SR_left)
+                psnr_right = compare_psnr(HR_right[..., :3].astype('uint8'), SR_right)
+                ssim_left = compare_ssim(HR_left[..., :3].astype('uint8'), SR_left, multichannel=True)
+                ssim_right = compare_ssim(HR_right[..., :3].astype('uint8'), SR_right, multichannel=True)
+                psnr_left_list.append(psnr_left)
+                psnr_right_list.append(psnr_right)
+                ssim_left_list.append(ssim_left)
+                ssim_right_list.append(ssim_right)
+            message += 'env: ' + env + ' psnr_left:%.3f' % np.array(psnr_left_list).mean() + ' psnr_right:%.3f' % np.array(psnr_right_list).mean()
+            message += 'env: ' + env + ' ssim_left:%.3f' % np.array(ssim_left_list).mean() + ' ssim_right:%.3f' % np.array(ssim_right_list).mean()
+        avg_psnr_left_list.extend(psnr_left_list)
+        avg_psnr_right_list.extend(psnr_right_list)
+        avg_ssim_left_list.extend(ssim_left_list)
+        avg_ssim_right_list.extend(ssim_right_list)
+
         avg_loss_list = {k: np.array(v).mean() for k, v in loss_list.items()}
+        avg_loss_list['psnr_left'] = np.array(avg_psnr_left_list).mean()
+        avg_loss_list['psnr_right'] = np.array(avg_psnr_right_list).mean()
+        avg_loss_list['ssim_left'] = np.array(avg_ssim_left_list).mean()
+        avg_loss_list['ssim_right'] = np.array(avg_ssim_right_list).mean()
+
         avg_sr_loss = avg_loss_list['SR']
         vis.print_current_losses(phase, idx_epoch, idx_step, avg_loss_list, tq)
         vis.plot_current_losses(phase, idx_epoch, avg_loss_list, idx_step)
+        log_name = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'loss_log.txt')
+        with open(log_name, "a") as log_file:
+            log_file.write('%s\n' % message) 
 
     return idx_step,  avg_sr_loss
 
@@ -125,6 +177,7 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, help='Path of the config file')
+    parser.add_argument('--test_data_dir', type=str, default='', help='Path of the config file')
     parser.add_argument('--data_dir', type=str, default='', help='Path of the dataset')
     parser.add_argument('--fast_test', default=False, action='store_true')
     args = parser.parse_args()

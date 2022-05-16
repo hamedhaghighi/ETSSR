@@ -7,10 +7,10 @@ import numpy as np
 import cv2
 
 class DataSetLoader(Dataset):
-    def __init__(self, cfg, to_tensor=True, max_data_size=-1):
+    def __init__(self, cfg, to_tensor=True, max_data_size=-1, test_for_train=False):
         super(DataSetLoader, self).__init__()
         self.cfg = cfg
-        self.dataset_dir = cfg.data_dir
+        self.dataset_dir = cfg.test_data_dir if test_for_train else cfg.data_dir
         self.file_list = sorted(os.listdir(self.dataset_dir))[:max_data_size]
         self.to_tensor = to_tensor
         self.scale = cfg.scale_factor

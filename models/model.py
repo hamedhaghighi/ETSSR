@@ -1,3 +1,5 @@
+import os
+from torch.utils.data import Subset
 from skimage.metrics import structural_similarity as compare_ssim
 from skimage.metrics import peak_signal_noise_ratio as compare_psnr
 import sys
@@ -12,7 +14,8 @@ from utils import disparity_alignment
 from models.CoSwinTransformer import CoSwinAttn
 from models.SwinTransformer import SwinAttn
 from timm.models.layers import trunc_normal_
-from dataset import toNdarray
+from dataset import toNdarray, toTensor
+import dataset
 
 class Net(nn.Module):
     def __init__(self, upscale_factor, img_size, model, input_channel=3, w_size=8, device='cpu'):
@@ -32,8 +35,8 @@ class Net(nn.Module):
             else:
                 self.pam = PAM(64, self.n_RDB)
         elif any(x in model for x in ['coswin', 'late_fusion']):
-            self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=[1], embed_dim=64, num_heads=num_heads, mlp_ratio=2)
-            self.coswin = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[1], embed_dim=64, num_heads=num_heads, mlp_ratio=2)
+            # self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=[1], embed_dim=64, num_heads=num_heads, mlp_ratio=2)
+            self.coswin = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[2], embed_dim=64, num_heads=num_heads, mlp_ratio=2)
         elif any(x in model for x in ['seperate', 'independent']):
             self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
         self.f_RDB = RDB(G0=128, C=4, G=32)
@@ -65,11 +68,12 @@ class Net(nn.Module):
         if 'pam' in self.model:
             buffer_leftT, buffer_rightT = self.pam(buffer_left, buffer_right, catfea_left, catfea_right)
         elif 'coswin' in self.model:
-            buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
-            if 'coswin_wo_d' in self.model:
-                buffer_leftT, buffer_rightT = self.coswin(buffer_leftT, buffer_rightT)
-            else:
-                buffer_leftT, buffer_rightT = self.coswin(buffer_leftT, buffer_rightT, d_left, d_right)            
+            # buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
+            buffer_leftT, buffer_rightT = self.coswin(buffer_left, buffer_right)
+            # if 'coswin_wo_d' in self.model:
+            #     buffer_leftT, buffer_rightT = self.coswin(buffer_leftT, buffer_rightT)
+            # else:
+            #     buffer_leftT, buffer_rightT = self.coswin(buffer_leftT, buffer_rightT, d_left, d_right)            
         elif any(x in self.model for x in ['seperate', 'independent']):
             buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
         if 'mine_late_fusion' in self.model:
@@ -100,18 +104,18 @@ class Net(nn.Module):
         SR_left, SR_right = self.forward(LR_left, LR_right)
         ''' SR Loss '''
         self.loss_SR = criterion_L1(SR_left, HR_left) + criterion_L1(SR_right, HR_right)
-        if not is_train:
-            self.loss_names.extend(['psnr_left', 'ssim_left', 'psnr_right', 'ssim_right'])
-            nd_array_sr_left, nd_array_sr_right = toNdarray(SR_left), toNdarray(SR_right)
-            nd_array_hr_left, nd_array_hr_right = toNdarray(HR_left), toNdarray(HR_right)
-            psnr_left = [compare_psnr(hr, sr) for hr, sr in zip(nd_array_hr_left, nd_array_sr_left)]
-            psnr_right = [compare_psnr(hr, sr) for hr, sr in zip(nd_array_hr_right, nd_array_sr_right)]
-            ssim_left = [compare_ssim(hr, sr, multichannel=True) for hr, sr in zip(nd_array_hr_left, nd_array_sr_left)]
-            ssim_right = [compare_ssim(hr, sr, multichannel=True) for hr, sr in zip(nd_array_hr_right, nd_array_sr_right)]
-            self.loss_psnr_left = torch.tensor(np.array(psnr_left).mean())
-            self.loss_psnr_right = torch.tensor(np.array(psnr_right).mean())
-            self.loss_ssim_left = torch.tensor(np.array(ssim_left).mean())
-            self.loss_ssim_right = torch.tensor(np.array(ssim_right).mean())
+        # if not is_train:
+        #     self.loss_names.extend(['psnr_left', 'ssim_left', 'psnr_right', 'ssim_right'])
+        #     nd_array_sr_left, nd_array_sr_right = toNdarray(SR_left), toNdarray(SR_right)
+        #     nd_array_hr_left, nd_array_hr_right = toNdarray(HR_left), toNdarray(HR_right)
+        #     psnr_left = [compare_psnr(hr, sr) for hr, sr in zip(nd_array_hr_left, nd_array_sr_left)]
+        #     psnr_right = [compare_psnr(hr, sr) for hr, sr in zip(nd_array_hr_right, nd_array_sr_right)]
+        #     ssim_left = [compare_ssim(hr, sr, multichannel=True) for hr, sr in zip(nd_array_hr_left, nd_array_sr_left)]
+        #     ssim_right = [compare_ssim(hr, sr, multichannel=True) for hr, sr in zip(nd_array_hr_right, nd_array_sr_right)]
+        #     self.loss_psnr_left = torch.tensor(np.array(psnr_left).mean())
+        #     self.loss_psnr_right = torch.tensor(np.array(psnr_right).mean())
+        #     self.loss_ssim_left = torch.tensor(np.array(ssim_left).mean())
+        #     self.loss_ssim_right = torch.tensor(np.array(ssim_right).mean())
 
         return self.loss_SR
 
@@ -420,7 +424,6 @@ class LightPAM(nn.Module):
         Q = Q - torch.mean(Q, 3).unsqueeze(3).repeat(1, 1, 1, w)
         K = self.bs(self.rb(self.bn(catfea_right)))
         K = K - torch.mean(K, 3).unsqueeze(3).repeat(1, 1, 1, w)
-        
         score = torch.bmm(Q.permute(0, 2, 3, 1).contiguous().view(-1, w_size, c),                    # (B*H) * Wl * C
                           K.permute(0, 2, 1, 3).contiguous().view(-1, c, w_size))                    # (B*H) * C * Wr
         # (B*H) * Wl * Wr
@@ -459,13 +462,14 @@ class LightPAM(nn.Module):
             return out_left, out_right
 
     def flop(self, H, W):
+        w_size = self.w_size
         N = H * W
         flop = 0
         flop += 2 * self.rb.flop(N)
         flop += 2 * N * self.channel * (self.n_RDB * self.channel + 1) * (1/4)
-        flop += H * (W**2) * self.channel
+        flop += H * W//w_size * (w_size**2) * self.channel
         # flop += 2 * H * W
-        flop += 2 * H * (W**2) * self.channel
+        flop += 2 * H * W//w_size * (w_size**2) * self.channel
         return flop
 
 
@@ -490,7 +494,7 @@ if __name__ == "__main__":
     # from StreoSwinSR import CoSwinAttn
     # from SwinTransformer import SwinAttn
     H, W, C = 360, 640, 3
-    net = Net(upscale_factor=4, model='rdb_pam', img_size=tuple([H, W]), input_channel=C, w_size=8).cuda()
+    net = Net(upscale_factor=4, model='MDB_lightpam', img_size=tuple([H, W]), input_channel=C, w_size=40).cuda()
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
