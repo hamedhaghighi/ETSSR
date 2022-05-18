@@ -83,7 +83,7 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
             t_cfg = deepcopy(cfg)
             t_cfg.test_data_dir = os.path.join(cfg.test_data_dir, env)
             total_dataset = dataset.DataSetLoader(t_cfg, to_tensor=False, test_for_train=True)
-            test_set = Subset(total_dataset, range(len(total_dataset))[-len(total_dataset)//20:])
+            test_set = Subset(total_dataset, range(len(total_dataset))[-len(total_dataset)//10:])
             psnr_right_list = []
             psnr_left_list = []
             ssim_left_list = []
