@@ -25,6 +25,8 @@ class Net(nn.Module):
         self.model = model
         self.w_size = w_size
         self.init_feature = nn.Conv2d(self.input_channel, 64, 3, 1, 1, bias=True)
+        self.condition_feature = nn.Sequential(nn.Conv2d(4, 64, 3, 1, 1, bias=True), nn.LeakyReLU(0.1, inplace=True),
+                                                 nn.Conv2d(64, 64, 3, 1, 1, bias=True))
         self.n_RDB = 3 if 'MDB' in model else 3
         self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
         depths = [2]
@@ -61,10 +63,14 @@ class Net(nn.Module):
             coords_b, coords_h, r2l_w, l2r_w = disparity_alignment(d_left, d_right, b, h, w)
             x_left_selected , x_right_selected = x_left[coords_b, :, coords_h, l2r_w].permute(0, 3, 1, 2) ,x_right[coords_b, :, coords_h, r2l_w].permute(0, 3, 1, 2)
             x_left, x_right = torch.cat([x_left, x_left_selected], dim = 1), torch.cat([x_right, x_right_selected], dim = 1)
+        
+        CF_left = self.condition_feature(x_left[:, 3:]) if 'CP' in self.model else None
+        CF_right = self.condition_feature(x_right[:, 3:]) if 'CP' in self.model else None
+
         buffer_left = self.init_feature(x_left[:, :self.input_channel])
         buffer_right = self.init_feature(x_right[:, :self.input_channel])
-        buffer_left, catfea_left = self.deep_feature(buffer_left)
-        buffer_right, catfea_right = self.deep_feature(buffer_right)
+        buffer_left, catfea_left = self.deep_feature(buffer_left, CF_left)
+        buffer_right, catfea_right = self.deep_feature(buffer_right, CF_right)
         if 'pam' in self.model:
             buffer_leftT, buffer_rightT = self.pam(buffer_left, buffer_right, catfea_left, catfea_right)
         elif 'coswin' in self.model:
@@ -81,8 +87,8 @@ class Net(nn.Module):
         else:
             buffer_leftF, buffer_rightF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1)), self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
         
-        buffer_leftF, _ = self.reconstruct(buffer_leftF)
-        buffer_rightF, _ = self.reconstruct(buffer_rightF)
+        buffer_leftF, _ = self.reconstruct(buffer_leftF, CF_left)
+        buffer_rightF, _ = self.reconstruct(buffer_rightF, CF_right)
         if 'late_fusion' in self.model:
             buffer_leftF, buffer_rightF = self.swin(buffer_leftF), self.swin(buffer_rightF)
             buffer_leftF, buffer_rightF = self.coswin(buffer_leftF, buffer_rightF, d_left, d_right)
@@ -205,14 +211,15 @@ class RDG(nn.Module):
                 self.RDBs.append(RDB(G0, C, G))
             elif type == 'P':
                 self.RDBs.append(PRDB(G0, C, G))
-        self.RDB = nn.Sequential(*self.RDBs)
+        self.RDB = nn.ModuleList(self.RDBs)
         self.conv = nn.Conv2d(G0*n_RDB, G0, kernel_size=1, stride=1, padding=0, bias=True)
 
-    def forward(self, x):
+    def forward(self, x, condition=None):
         buffer = x
         temp = []
         for i in range(self.n_RDB):
             buffer = self.RDB[i](buffer)
+            buffer = buffer if condition is None else buffer + condition
             temp.append(buffer)
         buffer_cat = torch.cat(temp, dim=1)
         out = self.conv(buffer_cat)
