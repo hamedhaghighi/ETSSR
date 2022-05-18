@@ -106,12 +106,12 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
                 psnr_right_list.append(psnr_right)
                 ssim_left_list.append(ssim_left)
                 ssim_right_list.append(ssim_right)
-            message += 'env: ' + env + ' psnr_left:%.3f' % np.array(psnr_left_list).mean() + ' psnr_right:%.3f' % np.array(psnr_right_list).mean()
-            message += 'env: ' + env + ' ssim_left:%.3f' % np.array(ssim_left_list).mean() + ' ssim_right:%.3f' % np.array(ssim_right_list).mean()
-        avg_psnr_left_list.extend(psnr_left_list)
-        avg_psnr_right_list.extend(psnr_right_list)
-        avg_ssim_left_list.extend(ssim_left_list)
-        avg_ssim_right_list.extend(ssim_right_list)
+            message += 'env: ' + env + ' psnr_left:%.3f' % np.array(psnr_left_list).mean() + ' psnr_right:%.3f' % np.array(psnr_right_list).mean() + '\n'
+            message += 'env: ' + env + ' ssim_left:%.3f' % np.array(ssim_left_list).mean() + ' ssim_right:%.3f' % np.array(ssim_right_list).mean() + '\n'
+            avg_psnr_left_list.extend(psnr_left_list)
+            avg_psnr_right_list.extend(psnr_right_list)
+            avg_ssim_left_list.extend(ssim_left_list)
+            avg_ssim_right_list.extend(ssim_right_list)
 
         avg_loss_list = {k: np.array(v).mean() for k, v in loss_list.items()}
         avg_loss_list['psnr_left'] = np.array(avg_psnr_left_list).mean()
