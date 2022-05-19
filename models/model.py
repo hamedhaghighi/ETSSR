@@ -49,7 +49,7 @@ class Net(nn.Module):
         #self.apply(self._init_weights)
 
     def forward(self, x_left, x_right, is_training = 0):
-        if not 'pam' in self.model or 'lightpam' in self.model:
+        if not 'pam' in self.model:
             x_left, mod_pad_h, mod_pad_w = self.check_image_size(x_left)
             x_right, _, _ = self.check_image_size(x_right)
         b, c, h, w = x_left.shape
@@ -94,8 +94,8 @@ class Net(nn.Module):
             buffer_leftF, buffer_rightF = self.coswin(buffer_leftF, buffer_rightF, d_left, d_right)
         out_left = self.upscale(buffer_leftF) + x_left_upscale
         out_right = self.upscale(buffer_rightF) + x_right_upscale
-        mod_h = -mod_pad_h * self.upscale_factor if ((not 'pam' in self.model or 'lightpam' in self.model) and mod_pad_h != 0) else None
-        mod_w = -mod_pad_w * self.upscale_factor if ((not 'pam' in self.model or 'lightpam' in self.model) and mod_pad_w != 0) else None
+        mod_h = -mod_pad_h * self.upscale_factor if ((not 'pam' in self.model) and mod_pad_h != 0) else None
+        mod_w = -mod_pad_w * self.upscale_factor if ((not 'pam' in self.model) and mod_pad_w != 0) else None
         return out_left[..., :mod_h, :mod_w], out_right[..., :mod_h, :mod_w]
 
     def get_losses(self):
