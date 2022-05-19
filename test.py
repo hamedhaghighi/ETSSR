@@ -99,8 +99,8 @@ def test(cfg):
                 h, w, _ = LR_left.shape
                 h_patch = biggest_divisior(h)
                 w_patch = biggest_divisior(w)
-                h_patch = 30
-                w_patch = 90
+                h_patch = 360
+                w_patch = 640
                 pad_h, pad_w = (h_patch - (h % h_patch)) % h_patch, (w_patch - (w % w_patch)) % w_patch
                 LR_left, LR_right = _pad(LR_left, pad_h, pad_w), _pad(
                     LR_right, pad_h, pad_w)
