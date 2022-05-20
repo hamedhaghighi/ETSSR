@@ -16,7 +16,7 @@ import numpy as np
 
 
 class BaseModel(nn.Module):
-    def __init__(self, upscale_factor, img_size, model, input_channel=3, w_size=8, device='cpu'):
+    def __init__(self):
         super(BaseModel, self).__init__()
         self.loss_names = ['SR']
         
