@@ -432,6 +432,7 @@ class LightPAM(nn.Module):
         # self.s_attn = SelfAttn(channels, w_size)
         self.bq = nn.Conv2d(self.n_RDB * channels, channels, 1, 1, 0, groups=self.g, bias=True)
         self.bs = nn.Conv2d(self.n_RDB * channels, channels, 1, 1, 0, groups=self.g, bias=True)
+        self.bv = nn.Conv2d(self.n_RDB * channels, channels, 1, 1, 0, groups=self.g, bias=True)
         self.softmax = nn.Softmax(-1)
         self.rb = ResB(self.n_RDB * channels)
         self.bn = nn.BatchNorm2d(self.n_RDB * channels)
@@ -445,6 +446,8 @@ class LightPAM(nn.Module):
         Q = Q - torch.mean(Q, 3).unsqueeze(3).repeat(1, 1, 1, w)
         K = self.bs(self.rb(self.bn(x_right)))
         K = K - torch.mean(K, 3).unsqueeze(3).repeat(1, 1, 1, w)
+        VL, VR = self.bv(self.rb(self.bn(x_left))), self.bv(self.rb(self.bn(x_right)))
+
         score = torch.bmm(Q.permute(0, 2, 3, 1).contiguous().view(-1, w_size, c),                    # (B*H) * Wl * C
                           K.permute(0, 2, 1, 3).contiguous().view(-1, c, w_size))                    # (B*H) * C * Wr
         # (B*H) * Wl * Wr
@@ -466,9 +469,9 @@ class LightPAM(nn.Module):
         V_left_tanh = torch.tanh(5 * V_left)
         V_right_tanh = torch.tanh(5 * V_right)
 
-        x_leftT = torch.bmm(M_right_to_left, x_right.permute(0, 2, 3, 1).contiguous().view(-1, w_size, c0)
+        x_leftT = torch.bmm(M_right_to_left, VR.permute(0, 2, 3, 1).contiguous().view(-1, w_size, c0)
                             ).contiguous().view(b, h0, w0, c0).permute(0, 3, 1, 2)  # B, C0, H0, W0
-        x_rightT = torch.bmm(M_left_to_right, x_left.permute(0, 2, 3, 1).contiguous().view(-1, w_size, c0)
+        x_rightT = torch.bmm(M_left_to_right, VL.permute(0, 2, 3, 1).contiguous().view(-1, w_size, c0)
                              ).contiguous().view(b, h0, w0, c0).permute(0, 3, 1, 2)  # B, C0, H0, W0
         out_left = x_left * (1 - V_left_tanh.repeat(1, c0, 1, 1)) + \
             x_leftT * V_left_tanh.repeat(1, c0, 1, 1)
@@ -487,8 +490,8 @@ class LightPAM(nn.Module):
         N = H * W
         flop = 0
         # flop+= 2 * self.s_attn.flop(H,W)
-        flop += 2 * self.rb.flop(N)
-        flop += 2 * N * self.channel * (self.n_RDB * self.channel + 1) * (1/self.g)
+        flop += 3 * self.rb.flop(N)
+        flop += 3 * N * self.channel * (self.n_RDB * self.channel + 1) * (1/self.g)
         flop += H * W//w_size * (w_size**2) * self.channel
         # flop += 2 * H * W
         flop += 2 * H * W//w_size * (w_size**2) * self.channel
