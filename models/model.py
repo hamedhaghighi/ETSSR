@@ -75,7 +75,7 @@ class Net(BaseModel):
         buffer_right, catfea_right = self.deep_feature(buffer_right, CF_right)
         if 'pam' in self.model:
             if 'light' in self.model:
-                buffer_leftT, buffer_rightT = self.swin(buffer_left, buffer_right)
+                buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
                 buffer_leftT, buffer_rightT = self.pam(buffer_leftT, buffer_rightT, catfea_left, catfea_right)
             else:
                 buffer_leftT, buffer_rightT = self.pam(buffer_left, buffer_right, catfea_left, catfea_right)
