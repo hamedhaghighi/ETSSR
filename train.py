@@ -139,6 +139,7 @@ def train(train_loader, val_loader, cfg):
             model = torch.load(model_path, map_location={'cuda:0': cfg.device})
             net.load_state_dict(model['state_dict'])
             cfg.start_epoch = model["epoch"]
+            cfg.lr = cfg.lr * cfg.gamma ** (model["epoch"]//cfg.n_steps)
         else:
             print("=> no model found at '{}'".format(cfg.load_model))
 
@@ -146,7 +147,7 @@ def train(train_loader, val_loader, cfg):
     optimizer = torch.optim.Adam([paras for paras in net.parameters() if paras.requires_grad == True], lr=cfg.lr)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=cfg.n_steps, gamma=cfg.gamma)
     min_val_loss = np.inf
-    idx_step = 0 
+    idx_step = cfg.start_epoch * len(train_loader)
     best_ckpt_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '_best' + '.pth')
     last_ckpt_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '_last' + '.pth')
     vis = Logger(cfg)
