@@ -18,6 +18,7 @@ import matplotlib.pyplot as plt
 import yaml
 import dataset
 import tqdm
+import cv2
 
 
 def patchify_img(img, h_patch, w_patch):
@@ -45,6 +46,17 @@ def biggest_divisior(n):
 def _pad(img, pad_h, pad_w):
     return np.pad(img, ((0, pad_h), (0, pad_w), (0, 0)))
 
+
+def calc_metrics(sr_left, sr_right, hr_left, hr_right, psnr_left_list, psnr_right_list, ssim_left_list, ssim_right_list):
+    psnr_left = compare_psnr(hr_left.astype('uint8'), sr_left)
+    psnr_right = compare_psnr(hr_right.astype('uint8'), sr_right)
+    ssim_left = compare_ssim(hr_left.astype('uint8'), sr_left, multichannel=True)
+    ssim_right = compare_ssim(hr_right.astype('uint8'), sr_right, multichannel=True)
+    psnr_left_list.append(psnr_left)
+    psnr_right_list.append(psnr_right)
+    ssim_left_list.append(ssim_left)
+    ssim_right_list.append(ssim_right)
+    return psnr_left_list, psnr_right_list, ssim_left_list, ssim_right_list
 
 class cfg_parser():
     def __init__(self, args):
@@ -82,6 +94,7 @@ def test(cfg):
     avg_psnr_right_list = []
     avg_ssim_left_list = []
     avg_ssim_right_list = []
+    psnr_right_list_bcb, psnr_left_list_bcb, ssim_left_list_bcb, ssim_right_list_bcb = [], [], [], []
     indices_to_save = {'Town02': [1, 2], 'Town07': [1, 4]}
     with torch.no_grad():
         for env in sorted(os.listdir(root_dir)):
@@ -90,10 +103,8 @@ def test(cfg):
             test_set = Subset(total_dataset, range(
                 len(total_dataset))[-len(total_dataset)//10:])
             # test_tq = tqdm.tqdm(total=len(test_set), desc='Iter', position=3)
-            psnr_right_list = []
-            psnr_left_list = []
-            ssim_left_list = []
-            ssim_right_list = []
+            psnr_right_list, psnr_left_list, ssim_left_list, ssim_right_list = [] , [], [], []
+            
             for idx in range(len(test_set)):
                 HR_left, HR_right, LR_left, LR_right = test_set[idx]
                 h, w, _ = LR_left.shape
@@ -135,36 +146,21 @@ def test(cfg):
                 sr_right_patches = np.concatenate(sr_right_list, axis=0)
                 if cfg.local_metric:
                     for i in range(sr_left_patches.shape[0]):
-                        psnr_left = compare_psnr(
-                            hr_left_patches[i].astype('uint8'), sr_left_patches[i])
-                        psnr_right = compare_psnr(
-                            hr_right_patches[i].astype('uint8'), sr_right_patches[i])
-                        ssim_left = compare_ssim(hr_left_patches[i].astype(
-                            'uint8'), sr_left_patches[i], multichannel=True)
-                        ssim_right = compare_ssim(hr_right_patches[i].astype(
-                            'uint8'), sr_right_patches[i], multichannel=True)
-                        psnr_left_list.append(psnr_left)
-                        psnr_right_list.append(psnr_right)
-                        ssim_left_list.append(ssim_left)
-                        ssim_right_list.append(ssim_right)
+                        psnr_left_list, psnr_right_list, ssim_left_list, ssim_right_list = calc_metrics(
+                            sr_left_patches[i], sr_right_patches[i], hr_left_patches[i], hr_right_patches[i], psnr_left_list, psnr_right_list, ssim_left_list, ssim_right_list)
 
-                sr_left, sr_right = unify_patches(
-                    sr_left_patches, n_h, n_w), unify_patches(sr_right_patches, n_h, n_w)
-                sr_left, sr_right = sr_left[:, :cfg.scale_factor * cfg.input_resolution[1]
-                                            ], sr_right[:, :cfg.scale_factor * cfg.input_resolution[1]]
+                sr_left, sr_right = unify_patches(sr_left_patches, n_h, n_w), unify_patches(sr_right_patches, n_h, n_w)
+                sr_left, sr_right = sr_left[:, :cfg.scale_factor * cfg.input_resolution[1]], sr_right[:, :cfg.scale_factor * cfg.input_resolution[1]]
                 if not cfg.local_metric:
-                    psnr_left = compare_psnr(
-                        HR_left[..., :3].astype('uint8'), sr_left)
-                    psnr_right = compare_psnr(
-                        HR_right[..., :3].astype('uint8'), sr_right)
-                    ssim_left = compare_ssim(HR_left[..., :3].astype(
-                        'uint8'), sr_left, multichannel=True)
-                    ssim_right = compare_ssim(HR_right[..., :3].astype(
-                        'uint8'), sr_right, multichannel=True)
-                    psnr_left_list.append(psnr_left)
-                    psnr_right_list.append(psnr_right)
-                    ssim_left_list.append(ssim_left)
-                    ssim_right_list.append(ssim_right)
+                    dst_shape = (LR_left.shape[1] * cfg.scale_factor, LR_left.shape[0] * cfg.scale_factor)
+                    sr_left_bcb, sr_right_bcb = cv2.resize(LR_left[..., :3].astype('uint8'), dst_shape, interpolation=cv2.INTER_CUBIC), cv2.resize(
+                        LR_right[..., :3].astype('uint8'), dst_shape, interpolation=cv2.INTER_CUBIC)
+                    psnr_left_list, psnr_right_list, ssim_left_list, ssim_right_list = calc_metrics(
+                        sr_left, sr_right, HR_left[..., :3], HR_right[..., :3], psnr_left_list, psnr_right_list, ssim_left_list, ssim_right_list)
+                    psnr_left_list_bcb, psnr_right_list_bcb, ssim_left_list_bcb, ssim_right_list_bcb = calc_metrics(
+                        sr_left_bcb, sr_right_bcb, HR_left[..., :3], HR_right[..., :3], psnr_left_list_bcb, psnr_right_list_bcb, ssim_left_list_bcb, ssim_right_list_bcb)
+                    
+
 
                 if env in indices_to_save and idx in indices_to_save[env]:
                     def save_array(array, name):
@@ -179,10 +175,8 @@ def test(cfg):
                     save_array(HR_left[..., :3].astype('uint8'), 'hr_left')
                     save_array(HR_right[..., :3].astype('uint8'), 'hr_right')
 
-            print('env: ', env, 'psnr_left:%.3f' % np.array(
-                psnr_left_list).mean(), 'psnr_right:%.3f' % np.array(psnr_right_list).mean())
-            print('env: ', env, 'ssim_left:%.3f' % np.array(
-                ssim_left_list).mean(), 'ssim_right:%.3f' % np.array(ssim_right_list).mean())
+            print('env: ', env, 'psnr_left:%.3f' % np.array(psnr_left_list).mean(), 'psnr_right:%.3f' % np.array(psnr_right_list).mean())
+            print('env: ', env, 'ssim_left:%.3f' % np.array(ssim_left_list).mean(), 'ssim_right:%.3f' % np.array(ssim_right_list).mean())
             avg_psnr_left_list.extend(psnr_left_list)
             avg_psnr_right_list.extend(psnr_right_list)
             avg_ssim_left_list.extend(ssim_left_list)
@@ -192,6 +186,10 @@ def test(cfg):
           'psnr_right:%.3f' % np.array(avg_psnr_right_list).mean())
     print('ssim_left:%.3f' % np.array(avg_ssim_left_list).mean(),
           'ssim_right:%.3f' % np.array(avg_ssim_right_list).mean())
+    print('psnr_left_bcb:%.3f' % np.array(psnr_left_list_bcb).mean(),
+          'psnr_right_bcb:%.3f' % np.array(psnr_right_list_bcb).mean())
+    print('ssim_left_bcb:%.3f' % np.array(ssim_left_list_bcb).mean(),
+          'ssim_right_bcb:%.3f' % np.array(ssim_right_list_bcb).mean())
     # save_path = './results/' + cfg.model_name + '/' + cfg.dataset
     # if not os.path.exists(save_path):
     #     os.makedirs(save_path)
