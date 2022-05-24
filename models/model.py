@@ -34,6 +34,7 @@ class Net(BaseModel):
         num_heads = [4]
         if 'pam' in model :
             if 'light' in model:
+                self.swin = SwinAttn(img_size=img_size, window_size=10, depths=[1], embed_dim=64, num_heads=num_heads, mlp_ratio=2)
                 self.pam = LightPAM(64, self.n_RDB, w_size)
             else:
                 self.pam = PAM(64, self.n_RDB)
@@ -73,7 +74,11 @@ class Net(BaseModel):
         buffer_left, catfea_left = self.deep_feature(buffer_left, CF_left)
         buffer_right, catfea_right = self.deep_feature(buffer_right, CF_right)
         if 'pam' in self.model:
-            buffer_leftT, buffer_rightT = self.pam(buffer_left, buffer_right, catfea_left, catfea_right)
+            if 'light' in self.model:
+                buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
+                buffer_leftT, buffer_rightT = self.pam(buffer_leftT, buffer_rightT, catfea_left, catfea_right)
+            else:
+                buffer_leftT, buffer_rightT = self.pam(buffer_left, buffer_right, catfea_left, catfea_right)
         elif 'coswin' in self.model:
             buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
             buffer_leftT, buffer_rightT = self.coswin(buffer_leftT, buffer_rightT, d_left, d_right)
@@ -194,10 +199,10 @@ class RDG(nn.Module):
         temp = []
         for i in range(self.n_RDB):
             buffer = self.RDB[i](buffer)
-            buffer = buffer if condition is None else buffer + condition
             temp.append(buffer)
         buffer_cat = torch.cat(temp, dim=1)
         out = self.conv(buffer_cat)
+        out = out  if condition is None else out + condition
         return out, buffer_cat
 
     def flop(self, N):
@@ -432,7 +437,6 @@ class LightPAM(nn.Module):
         # self.s_attn = SelfAttn(channels, w_size)
         self.bq = nn.Conv2d(self.n_RDB * channels, channels, 1, 1, 0, groups=self.g, bias=True)
         self.bs = nn.Conv2d(self.n_RDB * channels, channels, 1, 1, 0, groups=self.g, bias=True)
-        self.bv = nn.Conv2d(self.n_RDB * channels, channels, 1, 1, 0, groups=self.g, bias=True)
         self.softmax = nn.Softmax(-1)
         self.rb = ResB(self.n_RDB * channels)
         self.bn = nn.BatchNorm2d(self.n_RDB * channels)
@@ -446,7 +450,6 @@ class LightPAM(nn.Module):
         Q = Q - torch.mean(Q, 3).unsqueeze(3).repeat(1, 1, 1, w)
         K = self.bs(self.rb(self.bn(x_right)))
         K = K - torch.mean(K, 3).unsqueeze(3).repeat(1, 1, 1, w)
-        VL, VR = self.bv(self.rb(self.bn(x_left))), self.bv(self.rb(self.bn(x_right)))
 
         score = torch.bmm(Q.permute(0, 2, 3, 1).contiguous().view(-1, w_size, c),                    # (B*H) * Wl * C
                           K.permute(0, 2, 1, 3).contiguous().view(-1, c, w_size))                    # (B*H) * C * Wr
@@ -469,9 +472,9 @@ class LightPAM(nn.Module):
         V_left_tanh = torch.tanh(5 * V_left)
         V_right_tanh = torch.tanh(5 * V_right)
 
-        x_leftT = torch.bmm(M_right_to_left, VR.permute(0, 2, 3, 1).contiguous().view(-1, w_size, c0)
+        x_leftT = torch.bmm(M_right_to_left, x_right.permute(0, 2, 3, 1).contiguous().view(-1, w_size, c0)
                             ).contiguous().view(b, h0, w0, c0).permute(0, 3, 1, 2)  # B, C0, H0, W0
-        x_rightT = torch.bmm(M_left_to_right, VL.permute(0, 2, 3, 1).contiguous().view(-1, w_size, c0)
+        x_rightT = torch.bmm(M_left_to_right, x_left.permute(0, 2, 3, 1).contiguous().view(-1, w_size, c0)
                              ).contiguous().view(b, h0, w0, c0).permute(0, 3, 1, 2)  # B, C0, H0, W0
         out_left = x_left * (1 - V_left_tanh.repeat(1, c0, 1, 1)) + \
             x_leftT * V_left_tanh.repeat(1, c0, 1, 1)
