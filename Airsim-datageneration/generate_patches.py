@@ -25,11 +25,11 @@ def downsample(img):
 # Create dataset folder
 dataset = 'Carla'
 root_dir = '/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR/data/{}'.format(dataset)
-dest_dir = '/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR/data/{}_patches'.format(dataset)
+dest_dir = '/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR/data/{}_patches_L'.format(dataset)
 #root_dir = '/media/oem/Local Disk/Phd-datasets/iPASSR/data/testx2/AirSim'
 #dest_dir = '/media/oem/Local Disk/Phd-datasets/iPASSR/data/train/AirSim'
 scale = 2
-h_patch, w_patch = 30 , 90
+h_patch, w_patch = 90 , 160
 stride = 40
 cam_names = ['', 'disp_', 'seg_', 'sn_'] if dataset == 'AirSim' else ['', 'disp_', 'seg_']
 exts = ['.png', '.npz', '.png', '.png'] if dataset == 'AirSim' else ['.png', '.npz', '.png']
