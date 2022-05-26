@@ -192,7 +192,7 @@ class RDG(nn.Module):
             elif type == 'P':
                 self.RDBs.append(PRDB(G0, C, G))
         self.RDB = nn.ModuleList(self.RDBs)
-        self.conv = nn.Conv2d(G0*n_RDB, G0, kernel_size=1, stride=1, padding=0, bias=True)
+        self.conv = nn.Conv2d(G0*(n_RDB+1), G0, kernel_size=1, stride=1, padding=0, bias=True)
 
     def forward(self, x, condition=None):
         buffer = x
@@ -201,8 +201,8 @@ class RDG(nn.Module):
             buffer = self.RDB[i](buffer)
             temp.append(buffer)
         buffer_cat = torch.cat(temp, dim=1)
-        out = self.conv(buffer_cat)
-        out = out  if condition is None else out + condition
+        cat_condition = torch.cat([buffer_cat, condition], dim=1) if condition is not None else buffer_cat
+        out = self.conv(cat_condition)
         return out, buffer_cat
 
     def flop(self, N):
