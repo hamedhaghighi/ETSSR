@@ -30,7 +30,7 @@ dest_dir = '/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Phd_datasets/iPASSR/data/{}_p
 #dest_dir = '/media/oem/Local Disk/Phd-datasets/iPASSR/data/train/AirSim'
 scale = 2
 h_patch, w_patch = 90 , 160
-stride = 40
+stride_h, stride_w = 90, 160
 cam_names = ['', 'disp_', 'seg_', 'sn_'] if dataset == 'AirSim' else ['', 'disp_', 'seg_']
 exts = ['.png', '.npz', '.png', '.png'] if dataset == 'AirSim' else ['.png', '.npz', '.png']
 # Get list of scenes in Milddlebury's stereo training dataset and iterate through them
@@ -57,8 +57,8 @@ for n_cam in [0, 1]:
             img_x2 = np.concatenate(img_x2_list, axis=-1)
             img_x4 = np.concatenate(img_x4_list, axis=-1)
 
-            for x_x4 in range(2, img_x4.shape[0] - (h_patch + 2), stride):
-                for y_x4 in range(2, img_x4.shape[1] - (w_patch + 2), stride):
+            for x_x4 in range(2, img_x4.shape[0] - (h_patch + 2), stride_h):
+                for y_x4 in range(2, img_x4.shape[1] - (w_patch + 2), stride_w):
                     x_x2, y_x2 = x_x4 * 2, y_x4 * 2
                     x_x1, y_x1 = x_x4 * 4, y_x4 * 4
                     x4_patch = img_x4[x_x4: x_x4 + h_patch, y_x4: y_x4 + w_patch]
