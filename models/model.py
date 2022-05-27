@@ -192,7 +192,7 @@ class RDG(nn.Module):
             elif type == 'P':
                 self.RDBs.append(PRDB(G0, C, G))
         self.RDB = nn.ModuleList(self.RDBs)
-        self.conv = nn.Conv2d(G0*(n_RDB+1), G0, kernel_size=1, stride=1, padding=0, bias=True)
+        self.conv = nn.Conv2d(G0*n_RDB, G0, kernel_size=1, stride=1, padding=0, bias=True)
 
     def forward(self, x, condition=None):
         buffer = x
@@ -201,8 +201,7 @@ class RDG(nn.Module):
             buffer = self.RDB[i](buffer)
             temp.append(buffer)
         buffer_cat = torch.cat(temp, dim=1)
-        cat_condition = torch.cat([buffer_cat, condition], dim=1) if condition is not None else buffer_cat
-        out = self.conv(cat_condition)
+        out = self.conv(buffer_cat)
         return out, buffer_cat
 
     def flop(self, N):
@@ -522,7 +521,7 @@ if __name__ == "__main__":
     # from StreoSwinSR import CoSwinAttn
     # from SwinTransformer import SwinAttn
     H, W, C = 360, 640, 3
-    net = Net(upscale_factor=4, model='MDB_lightpam', img_size=tuple([H, W]), input_channel=C, w_size=40).cuda()
+    net = Net(upscale_factor=4, model='MDB_coswin', img_size=tuple([H, W]), input_channel=C, w_size=20).cuda()
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
