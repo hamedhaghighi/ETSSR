@@ -127,7 +127,8 @@ class Net(BaseModel):
             _, _, h, w = x.size()
             mod_pad_h = (self.w_size - h % self.w_size) % self.w_size
             mod_pad_w = (self.w_size - w % self.w_size) % self.w_size
-            x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
+            if mod_pad_h!=0 or mod_pad_w!=0:
+                x = F.pad(x, (0, mod_pad_w, 0, mod_pad_h), 'reflect')
             return x, mod_pad_h, mod_pad_w
  
     def _init_weights(self, m):
@@ -202,6 +203,7 @@ class RDG(nn.Module):
             temp.append(buffer)
         buffer_cat = torch.cat(temp, dim=1)
         out = self.conv(buffer_cat)
+        out = out + condition if condition is not None else out
         return out, buffer_cat
 
     def flop(self, N):
@@ -521,7 +523,7 @@ if __name__ == "__main__":
     # from StreoSwinSR import CoSwinAttn
     # from SwinTransformer import SwinAttn
     H, W, C = 360, 640, 3
-    net = Net(upscale_factor=4, model='MDB_coswin', img_size=tuple([H, W]), input_channel=C, w_size=20).cuda()
+    net = Net(upscale_factor=4, model='MDB_coswin', img_size=tuple([H, W]), input_channel=C, w_size=15).cuda()
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
