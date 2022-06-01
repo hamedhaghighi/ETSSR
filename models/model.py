@@ -30,7 +30,6 @@ class Net(BaseModel):
             self.condition_feature = nn.Sequential(nn.Conv2d(4, 64, 3, 1, 1, bias=True), nn.LeakyReLU(0.1, inplace=True), nn.Conv2d(64, 64, 3, 1, 1, bias=True))
         self.n_RDB = 3 if 'MDB' in model else 3
         self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
-        depths = [2]
         num_heads = [4]
         if 'pam' in model :
             if 'light' in model:
@@ -42,12 +41,15 @@ class Net(BaseModel):
             self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=[1], embed_dim=64, num_heads=num_heads, mlp_ratio=2)
             self.coswin = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[1], embed_dim=64, num_heads=num_heads, mlp_ratio=2)
         elif any(x in model for x in ['seperate', 'independent']):
+            depths = [2]
             self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=64, num_heads=num_heads, mlp_ratio=2)
         self.f_RDB = RDB(G0=128, C=4, G=32)
         self.CAlayer = CALayer(128)
         self.fusion = nn.Sequential(self.f_RDB, self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
         self.reconstruct = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
-        self.upscale = nn.Sequential(nn.Conv2d(64, 3, 3, 1, 1, bias=True), nn.Conv2d(3, 3 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor))
+        # self.upscale = nn.Sequential(nn.Conv2d(64, 3, 3, 1, 1, bias=True), nn.Conv2d(3, 3 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor))
+        self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
+
         #self.apply(self._init_weights)
 
     def forward(self, x_left, x_right, is_training = 0):
@@ -81,11 +83,10 @@ class Net(BaseModel):
                 buffer_leftT, buffer_rightT = self.pam(buffer_left, buffer_right, catfea_left, catfea_right)
         elif 'coswin' in self.model:
             buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
-            buffer_leftT, buffer_rightT = self.coswin(buffer_leftT, buffer_rightT, d_left, d_right)
-            # if 'coswin_wo_d' in self.model:
-            #     buffer_leftT, buffer_rightT = self.coswin(buffer_leftT, buffer_rightT)
-            # else:
-            #     buffer_leftT, buffer_rightT = self.coswin(buffer_leftT, buffer_rightT, d_left, d_right)            
+            if 'coswin_wo_d' in self.model:
+                buffer_leftT, buffer_rightT = self.coswin(buffer_leftT, buffer_rightT)
+            else:
+                buffer_leftT, buffer_rightT = self.coswin(buffer_leftT, buffer_rightT, d_left, d_right)            
         elif any(x in self.model for x in ['seperate', 'independent']):
             buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
         if 'mine_late_fusion' in self.model:
@@ -113,13 +114,12 @@ class Net(BaseModel):
         if 'pam' in self.model:
             flop += self.pam.flop(H, W)
         elif 'coswin' in self.model:
-            flop += self.swin.flops(H, W) + self.coswin.flops(H, W)
+            flop += 2 * self.swin.flops(H, W) + self.coswin.flops(H, W)
         elif any(x in self.model for x in ['seperate', 'independent']):
             flop += self.swin.flops(H, W)
         flop += 2 * (self.f_RDB.flop(N) + self.CAlayer.flop(N) + N * (128 + 1) * 64)
         flop += 2 * self.reconstruct.flop(N)
-        flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2) + N * 3 * (64 * 9 + 1))
-        flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2))
+        flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2) + N * (self.upscale_factor ** 2) * (64 * 9 + 1) * 3)
         return flop
 
 
@@ -384,47 +384,9 @@ class PAM(nn.Module):
         flop += 2 * self.rb.flop(N)
         flop += 2 * N * self.channel * (self.n_RDB * self.channel + 1) * (1/4)
         flop += H * (W**2) * self.channel
-        # flop += 2 * H * W
         flop += 2 * H * (W**2) * self.channel
         return flop
 
-
-class SelfAttn(nn.Module):
-
-    def __init__(self, channels, w_size):
-        super(SelfAttn, self).__init__()
-        self.channel = channels
-        self.w_size = w_size
-        self.qkv = nn.Conv2d(channels, 3 * channels, 1, 1, 0, bias=True)
-        self.softmax = nn.Softmax(-1)
-        self.bn = nn.BatchNorm2d(channels)
-
-    def forward(self, x):
-        w_size = self.w_size
-        b, c, h, w = x.shape
-        qkv = self.qkv(self.bn(x)).reshape(b, 3, c, h, w).permute(1, 0, 2, 3, 4)
-        Q , K , V = qkv[0], qkv[1], qkv[2]
-        score = torch.bmm(Q.permute(0, 2, 3, 1).contiguous().view(-1, w_size, c),                    # (B*H) * Wl * C
-                          K.permute(0, 2, 1, 3).contiguous().view(-1, c, w_size))                    # (B*H) * C * Wr
-        # (B*H) * Wl * Wr
-        attn = self.softmax(score)
-        # (B*H) * Wr * Wl
-
-        xT = torch.bmm(attn, V.permute(0, 2, 3, 1).contiguous().view(-1, w_size, c)).contiguous().view(b, h, w, c).permute(0, 3, 1, 2)  # B, C0, H0, W0
-        out = xT + x
-
-        return out
-
-
-    def flop(self, H, W):
-            w_size = self.w_size
-            N = H * W
-            flop = 0
-            flop +=  N * self.channel * (self.channel + 1) * 3
-            flop += H * W//w_size * (w_size**2) * self.channel
-            # flop += 2 * H * W
-            flop +=  H * W//w_size * (w_size**2) * self.channel
-            return flop
 
 class LightPAM(nn.Module):
 
@@ -435,7 +397,6 @@ class LightPAM(nn.Module):
         self.n_RDB = n_RDB
         self.n_RDB = 1
         self.g = 1
-        # self.s_attn = SelfAttn(channels, w_size)
         self.bq = nn.Conv2d(self.n_RDB * channels, channels, 1, 1, 0, groups=self.g, bias=True)
         self.bs = nn.Conv2d(self.n_RDB * channels, channels, 1, 1, 0, groups=self.g, bias=True)
         self.softmax = nn.Softmax(-1)
@@ -445,7 +406,6 @@ class LightPAM(nn.Module):
     def __call__(self, x_left, x_right, catfea_left, catfea_right, is_training=0):
         w_size = self.w_size
         b, c0, h0, w0 = x_left.shape
-        # x_left, x_right = self.s_attn(x_left), self.s_attn(x_right)
         Q = self.bq(self.rb(self.bn(x_left)))
         b, c, h, w = Q.shape
         Q = Q - torch.mean(Q, 3).unsqueeze(3).repeat(1, 1, 1, w)
@@ -523,7 +483,7 @@ if __name__ == "__main__":
     # from StreoSwinSR import CoSwinAttn
     # from SwinTransformer import SwinAttn
     H, W, C = 360, 640, 3
-    net = Net(upscale_factor=4, model='MDB_coswin', img_size=tuple([H, W]), input_channel=C, w_size=15).cuda()
+    net = Net(upscale_factor=4, model='MDB_pam', img_size=tuple([H, W]), input_channel=C, w_size=15).cuda()
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])

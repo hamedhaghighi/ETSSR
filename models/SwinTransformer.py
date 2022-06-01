@@ -294,7 +294,7 @@ class RSTB(nn.Module):
         flops = 0
         for block in self.blocks:
             flops += block.flops(H, W)
-        flops += H * W * self.dim * self.dim * 9
+        flops += H * W * (self.dim + 1) * self.dim * 9
 
         return flops
 
@@ -353,10 +353,8 @@ class SwinAttn(nn.Module):
 
         x_size = (x.shape[2], x.shape[3])
         x = x.flatten(2).transpose(1, 2)
-        # x = self.pre_norm(x) 
         for layer in self.layers:
             x = layer(x, x_size)
-        # x = self.norm(x)  # B L C
         B, HW, C = x.shape
         x = x.transpose(1, 2).view(B, C, x_size[0], x_size[1])
         return x
@@ -365,7 +363,6 @@ class SwinAttn(nn.Module):
         flops = 0
         for layer in self.layers:
             flops += layer.flops(H, W)
-        # flops += 2 * H * W * self.embed_dim
         return flops
 
     

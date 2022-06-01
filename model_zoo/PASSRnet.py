@@ -1,3 +1,4 @@
+from turtle import up
 import torch
 import torch.nn as nn
 import numpy as np
@@ -5,10 +6,24 @@ import matplotlib.pyplot as plt
 from skimage import morphology
 from models.BaseModel import BaseModel
 
+
+def conv_flop(N, in_ch, out_ch, K, bias=False):
+    if bias:
+        return N * (K**2 * in_ch + 1) * out_ch
+    return N * K**2 * in_ch * out_ch
+
+def ResB_flops(N, channel):
+    return 2 * conv_flop(N, channel, channel, 3)
+
+
+def ResASPPB_flops(N, channel):
+    return 9 * conv_flop(N, channel, channel, 3) + 3 * conv_flop(N, channel * 3, channel, 3)
+
 class PASSRnet(BaseModel):
     def __init__(self, upscale_factor):
         super(PASSRnet, self).__init__()
         ### feature extraction
+        self.upscale_factor = upscale_factor
         self.init_feature = nn.Sequential(
             nn.Conv2d(3, 64, 3, 1, 1, bias=False),
             nn.LeakyReLU(0.1, inplace=True),
@@ -46,6 +61,26 @@ class PASSRnet(BaseModel):
         out_left = self.one_image_output(x_left, x_right)
         out_right = self.one_image_output(x_right, x_left)
         return out_left, out_right
+
+    def flop(self, H, W):
+        N = H * W
+        flops = 0
+        flops += 2 * conv_flop(N, 3, 64, 3)
+        # ResB
+        flops += 2 * 3 * (ResB_flops(N, 64))
+        # ResASPPB
+        flops += 2 * 2 * (ResASPPB_flops(N, 64))
+        # pam
+        flops += self.pam.flop(H, W)
+        # upscale
+        flops += 4 * (ResB_flops(N, 64))
+        flops += conv_flop(N, 64, 64 * self.upscale_factor ** 2, 1)
+        flops += conv_flop(N * self.upscale_factor ** 2, 64, 3, 3)
+        flops += conv_flop(N * self.upscale_factor ** 2, 3, 3, 3)
+        
+        return flops
+
+
 
 
 class ResB(nn.Module):
@@ -112,6 +147,7 @@ class ResASPPB(nn.Module):
 class PAM(nn.Module):
     def __init__(self, channels):
         super(PAM, self).__init__()
+        self.channels = channels
         self.b1 = nn.Conv2d(channels, channels, 1, 1, 0, bias=True)
         self.b2 = nn.Conv2d(channels, channels, 1, 1, 0, bias=True)
         self.b3 = nn.Conv2d(channels, channels, 1, 1, 0, bias=True)
@@ -119,7 +155,7 @@ class PAM(nn.Module):
         self.rb = ResB(64)
         self.fusion = nn.Conv2d(channels * 2 + 1, channels, 1, 1, 0, bias=True)
 
-    def __call__(self, x_left, x_right, is_training):
+    def forward(self, x_left, x_right, is_training):
         b, c, h, w = x_left.shape
         buffer_left = self.rb(x_left)
         buffer_right = self.rb(x_right)
@@ -155,6 +191,17 @@ class PAM(nn.Module):
         out = self.fusion(torch.cat((buffer, x_left, V_left_to_right), 1))
 
         return out
+
+    def flop(self, H, W):
+        N = H * W
+        flop = 0
+        flop += 2 * ResB_flops(N, 64)
+        flop += 5 * conv_flop(N, self.channels, self.channels, 1, True)
+        flop += 2 * H * (W**2) * self.channels
+        # flop += 2 * H * W
+        flop += H * (W**2) * self.channels
+        flop += conv_flop(N, self.channels * 2 + 1, self.channels, 1, True)
+        return flop
 
 
 def morphologic_process(mask):

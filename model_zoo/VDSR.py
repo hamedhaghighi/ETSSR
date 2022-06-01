@@ -3,11 +3,17 @@ import torch.nn as nn
 from math import sqrt
 from models.BaseModel import BaseModel
 
+
+def conv_flop(N, in_ch, out_ch, K, bias=False):
+    if bias:
+        return N * (K**2 * in_ch + 1) * out_ch
+    return N * K**2 * in_ch * out_ch
+
+
 class Conv_ReLU_Block(nn.Module):
     def __init__(self):
         super(Conv_ReLU_Block, self).__init__()
-        self.conv = nn.Conv2d(in_channels=64, out_channels=64,
-                              kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
@@ -18,10 +24,8 @@ class Net(BaseModel):
     def __init__(self):
         super(Net, self).__init__()
         self.residual_layer = self.make_layer(Conv_ReLU_Block, 18)
-        self.input = nn.Conv2d(
-            in_channels=1, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
-        self.output = nn.Conv2d(
-            in_channels=64, out_channels=1, kernel_size=3, stride=1, padding=1, bias=False)
+        self.input = nn.Conv2d(in_channels=1, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.output = nn.Conv2d(in_channels=64, out_channels=1, kernel_size=3, stride=1, padding=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
 
         for m in self.modules():
@@ -48,4 +52,17 @@ class Net(BaseModel):
         x_left = self.one_image_output(x_left)
         x_right = self.one_image_output(x_right)
         return x_left, x_right
+
     
+    def flop(self, H, W):
+        N = H * W
+        flop = 0
+        # input
+        flop += conv_flop(N, 3, 64, 3, False)
+        # residual
+        flop += 18 * conv_flop(N, 64, 64, 3, False)
+        # output
+        flop += conv_flop(N, 64, 3, 3, False)
+        return flop
+
+
