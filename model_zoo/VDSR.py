@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from math import sqrt
 from models.BaseModel import BaseModel
-
+import torch.nn.functional as F
 
 def conv_flop(N, in_ch, out_ch, K, bias=False):
     if bias:
@@ -20,12 +20,13 @@ class Conv_ReLU_Block(nn.Module):
         return self.relu(self.conv(x))
     
 
-class Net(BaseModel):
-    def __init__(self):
-        super(Net, self).__init__()
+class VDSR(BaseModel):
+    def __init__(self, upscale_factor):
+        super(VDSR, self).__init__()
+        self.upscale_factor = upscale_factor
         self.residual_layer = self.make_layer(Conv_ReLU_Block, 18)
-        self.input = nn.Conv2d(in_channels=1, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
-        self.output = nn.Conv2d(in_channels=64, out_channels=1, kernel_size=3, stride=1, padding=1, bias=False)
+        self.input = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.output = nn.Conv2d(in_channels=64, out_channels=3, kernel_size=3, stride=1, padding=1, bias=False)
         self.relu = nn.ReLU(inplace=True)
 
         for m in self.modules():
@@ -49,8 +50,10 @@ class Net(BaseModel):
         return out
 
     def forward(self, x_left, x_right):
-        x_left = self.one_image_output(x_left)
-        x_right = self.one_image_output(x_right)
+        x_left_upscale = F.interpolate(x_left[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
+        x_right_upscale = F.interpolate(x_right[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
+        x_left = self.one_image_output(x_left_upscale)
+        x_right = self.one_image_output(x_right_upscale)
         return x_left, x_right
 
     

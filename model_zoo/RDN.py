@@ -36,8 +36,8 @@ class RDN(BaseModel):
         return out
 
     def forward(self, x_left, x_right):
-        x_left = self.one_image_output(x_left)
-        x_right = self.one_image_output(x_right)
+        x_left = self.one_image_output(x_left[:, :3])
+        x_right = self.one_image_output(x_right[:, :3])
         return x_left, x_right
 
     def flop(self, H, W):
@@ -68,6 +68,7 @@ class one_conv(nn.Module):
 class RDB(nn.Module):
     def __init__(self, G0, C, G):
         super(RDB, self).__init__()
+        self.G0, self.C , self.G = G0, C, G
         self.convs = []
         for i in range(C):
             self.convs.append(one_conv(G0+i*G, G))
@@ -88,6 +89,7 @@ class RDB(nn.Module):
 class RDG(nn.Module):
     def __init__(self, G0, C, G, n_RDB):
         super(RDG, self).__init__()
+        self.G0, self.C, self.G = G0, C, G
         self.n_RDB = n_RDB
         self.RDBs = []
         for i in range(n_RDB):
@@ -107,7 +109,7 @@ class RDG(nn.Module):
 
     def flop(self, N):
         flop = 0
-        flop += len(self.RDBs) * self.RDBs[0].flop(N)
+        flop += self.n_RDB * self.RDBs[0].flop(N)
         flop += N * (self.n_RDB * self.G0 + 1) * self.G0
         return flop
 

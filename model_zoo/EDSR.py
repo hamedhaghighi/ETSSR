@@ -16,6 +16,7 @@ class EDSR(BaseModel):
     def __init__(self, upscale_factor):
         super(EDSR, self).__init__()
         self.init_feature = nn.Conv2d(3, 256, 3, 1, 1)
+        self.upscale_factor = upscale_factor
         self.body = ResidualGroup(256, 32)
         if upscale_factor == 2:
             self.upscale = nn.Sequential(
@@ -37,14 +38,25 @@ class EDSR(BaseModel):
         return out
     
     def forward(self, x_left, x_right):
-        x_left = self.one_image_output(x_left)
-        x_right = self.one_image_output(x_right)
+        x_left = self.one_image_output(x_left[:, :3])
+        x_right = self.one_image_output(x_right[:, :3])
         return x_left, x_right
     
     def flop(self, H, W):
         N = H * W
         flop = 0
         flop += conv_flop(N, 3, 256, 3)
+        flop += self.body.flop(N)
+        if self.upscale_factor == 2:
+            flop += conv_flop(N, 256, 256*4, 1)
+            flop += conv_flop(N * 4, 256, 3, 1)
+        elif self.upscale_factor == 4:
+            flop += conv_flop(N, 256, 256*4, 1)
+            flop += conv_flop(N * 4, 256, 256*4, 1)
+            flop += conv_flop(N * 16, 256, 3, 1)
+        
+        return flop
+
 
 class ResB(nn.Module):
     def __init__(self, n_feat):

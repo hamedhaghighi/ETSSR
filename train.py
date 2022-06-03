@@ -19,6 +19,8 @@ import random
 from dataset import toTensor, toNdarray
 from skimage.metrics import structural_similarity as compare_ssim
 from skimage.metrics import peak_signal_noise_ratio as compare_psnr
+from model_selection import model_selection
+
 
 def modify_opt_for_fast_test(opt):
     opt.n_epochs = 2
@@ -90,12 +92,12 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
             ssim_right_list = []
             for idx in range(len(test_set)):
                 HR_left, HR_right, LR_left, LR_right = test_set[idx]
-                # HR_left, HR_right, LR_left, LR_right = HR_left[:120,:360], HR_right[:120,:360], LR_left[:30,:90], LR_right[:30,:90]
+                HR_left, HR_right, LR_left, LR_right = HR_left[:120,:360], HR_right[:120,:360], LR_left[:30,:90], LR_right[:30,:90]
                 h, w, _ = LR_left.shape
                 batch_size = 1
                 lr_left, lr_right = toTensor(LR_left).to(cfg.device).unsqueeze(0), toTensor(LR_right).to(cfg.device).unsqueeze(0)
                 with torch.no_grad():
-                    SR_left, SR_right = net(lr_left, lr_right, is_training=0)
+                    SR_left, SR_right = net(lr_left, lr_right)
                 SR_left, SR_right = toNdarray(torch.clamp(SR_left, 0, 1)).squeeze(), toNdarray(torch.clamp(SR_right, 0, 1)).squeeze()
 
                 psnr_left = compare_psnr(HR_left[..., :3].astype('uint8'), SR_left)
@@ -131,8 +133,7 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
 def train(train_loader, val_loader, cfg):
     IC = cfg.input_channel
     input_size = check_input_size(cfg.input_resolution, cfg.w_size)
-    net = mine.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, cfg.device).to(cfg.device) if 'mine' in cfg.model\
-        else (SSR.Net(cfg.scale_factor, input_size, cfg.model, IC, cfg.w_size, device=cfg.device).to(cfg.device) if 'transformer' in cfg.model else ipassr.Net(cfg.scale_factor, IC).to(cfg.device))
+    net = model_selection(cfg.model, cfg.scale_factor, input_size[0], input_size[1], IC, cfg.w_size, cfg.device)
     if cfg.load:
         model_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '_last' +'.pth')
         if os.path.isfile(model_path):

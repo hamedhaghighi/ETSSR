@@ -58,8 +58,8 @@ class PASSRnet(BaseModel):
         return out
 
     def forward(self, x_left, x_right):
-        out_left = self.one_image_output(x_left, x_right)
-        out_right = self.one_image_output(x_right, x_left)
+        out_left = self.one_image_output(x_left[:, :3], x_right[:, :3])
+        out_right = self.one_image_output(x_right[:, :3], x_left[:, :3])
         return out_left, out_right
 
     def flop(self, H, W):
@@ -155,7 +155,7 @@ class PAM(nn.Module):
         self.rb = ResB(64)
         self.fusion = nn.Conv2d(channels * 2 + 1, channels, 1, 1, 0, bias=True)
 
-    def forward(self, x_left, x_right, is_training):
+    def forward(self, x_left, x_right):
         b, c, h, w = x_left.shape
         buffer_left = self.rb(x_left)
         buffer_right = self.rb(x_right)
@@ -207,7 +207,7 @@ class PAM(nn.Module):
 def morphologic_process(mask):
     device = mask.device
     b, _, _, _ = mask.shape
-    mask = 1-mask
+    mask = ~mask
     mask_np = mask.cpu().numpy().astype(bool)
     mask_np = morphology.remove_small_objects(mask_np, 20, 2)
     mask_np = morphology.remove_small_holes(mask_np, 10, 2)

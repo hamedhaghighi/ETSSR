@@ -52,8 +52,8 @@ class RCAN(BaseModel):
         return out
 
     def forward(self, x_left, x_right):
-        x_left = self.one_image_output(x_left)
-        x_right = self.one_image_output(x_right)
+        x_left = self.one_image_output(x_left[:, :3])
+        x_right = self.one_image_output(x_right[:, :3])
         return x_left, x_right
     
     def flop(self, H, W):
@@ -114,7 +114,7 @@ class RCAB(nn.Module):
     def flop(self, N):
         flop = 0
         flop += 2 * conv_flop(N, self.n_feat, self.n_feat, 3)
-        flop += self.ca_layer.flop()
+        flop += self.ca_layer.flop(N)
         return flop
 
 ## Residual Group (RG)
