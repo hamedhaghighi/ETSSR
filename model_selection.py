@@ -8,7 +8,7 @@ from model_zoo.EDSR import EDSR
 
 def model_selection(model_name, upscale_factor=2, H=None, W=None, C=None, w_size=None, device='cuda'):
     if 'mine' in model_name:
-        net = Net(upscale_factor=upscale_factor, model=model_name,img_size=tuple([H, W]), input_channel=C, w_size=w_size)
+        net = Net(upscale_factor=upscale_factor, model=model_name, img_size=tuple([H, W]), input_channel=C, w_size=w_size)
     elif model_name == 'PASSRnet':
         net = PASSRnet(upscale_factor)
     elif model_name == 'VDSR':

@@ -92,7 +92,7 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
             ssim_right_list = []
             for idx in range(len(test_set)):
                 HR_left, HR_right, LR_left, LR_right = test_set[idx]
-                HR_left, HR_right, LR_left, LR_right = HR_left[:120,:360], HR_right[:120,:360], LR_left[:30,:90], LR_right[:30,:90]
+                # HR_left, HR_right, LR_left, LR_right = HR_left[:120,:360], HR_right[:120,:360], LR_left[:30,:90], LR_right[:30,:90]
                 h, w, _ = LR_left.shape
                 batch_size = 1
                 lr_left, lr_right = toTensor(LR_left).to(cfg.device).unsqueeze(0), toTensor(LR_right).to(cfg.device).unsqueeze(0)
