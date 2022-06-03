@@ -29,7 +29,7 @@ class Net(BaseModel):
         if 'CP' in self.model:
             self.condition_feature = nn.Sequential(nn.Conv2d(4, 64, 3, 1, 1, bias=True), nn.LeakyReLU(0.1, inplace=True), nn.Conv2d(64, 64, 3, 1, 1, bias=True))
         self.n_RDB = 3 if 'MDB' in model else 3
-        self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
+        self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=3, G=24, n_RDB=self.n_RDB, type='N')
         num_heads = [4]
         if 'pam' in model :
             if 'light' in model:
@@ -46,7 +46,7 @@ class Net(BaseModel):
         self.f_RDB = RDB(G0=128, C=4, G=32)
         self.CAlayer = CALayer(128)
         self.fusion = nn.Sequential(self.f_RDB, self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
-        self.reconstruct = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
+        self.reconstruct = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=3, G=24, n_RDB=self.n_RDB, type='N')
         # self.upscale = nn.Sequential(nn.Conv2d(64, 3, 3, 1, 1, bias=True), nn.Conv2d(3, 3 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor))
         self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
 
@@ -273,7 +273,7 @@ class PRDB(nn.Module):
         flop = 0
         for mdb in self.MDBs:
             flop += mdb.flop(N)
-        flop += N * ((2 * (self.G0 + 2 * self.C *self.G) + 1) * self.G0)
+        flop += N * ((self.G0 + self.C *self.G + 1) * self.G0)
         return flop
 
 
