@@ -19,7 +19,7 @@ from dataset import toNdarray, toTensor
 import dataset
 
 class Net(BaseModel):
-    def __init__(self, upscale_factor, img_size, model, input_channel=3, w_size=8, device='cpu'):
+    def __init__(self, upscale_factor, img_size, model, input_channel=3, w_size=8):
         super(Net, self).__init__()
         self.input_channel = 20 if 'seperate' in model else input_channel
         self.upscale_factor = upscale_factor
@@ -47,7 +47,6 @@ class Net(BaseModel):
         self.CAlayer = CALayer(128)
         self.fusion = nn.Sequential(self.f_RDB, self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
         self.reconstruct = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=3, G=24, n_RDB=self.n_RDB, type='N')
-        # self.upscale = nn.Sequential(nn.Conv2d(64, 3, 3, 1, 1, bias=True), nn.Conv2d(3, 3 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor))
         self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
 
         #self.apply(self._init_weights)

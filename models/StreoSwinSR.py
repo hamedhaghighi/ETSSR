@@ -6,18 +6,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
 import matplotlib.pyplot as plt
-from skimage import morphology
-from torchvision import transforms
-import torch.utils.checkpoint as checkpoint
 import sys
 sys.path.append('/home/oem/Documents/PhD_proj/iPASSR')
 sys.path.append('/home/haghig_h@WMGDS.WMG.WARWICK.AC.UK/Documents/StereoSR')
 from timm.models.layers import trunc_normal_
 
-import time
 
 class Net(nn.Module):
-    def __init__(self, upscale_factor, img_size, model, input_channel = 3, w_size = 8, embed_dim =64, device='cpu'):
+    def __init__(self, upscale_factor, img_size, model, input_channel = 3, w_size = 8, embed_dim =64):
         super(Net, self).__init__()
         if 'light' in model:
             from models.LightSwinTransformer import SwinAttn
@@ -45,7 +41,7 @@ class Net(nn.Module):
             self.CAlayer = CALayer(embed_dim * 2)
             self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(embed_dim * 2, embed_dim, kernel_size=1, stride=1, padding=0, bias=True))
             self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
-        self.upscale = nn.Sequential(nn.Conv2d(64, 3, 3, 1, 1, bias=True), nn.Conv2d(3, 3 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor))
+        self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
 
         self.apply(self._init_weights)
 
@@ -134,7 +130,7 @@ class Net(nn.Module):
             flop += 2 * self.deep_feature.flops(H, W)
             flop += 2 * (self.CAlayer.flop(N) + N * (128 + 1) * 64)
             flop += 2 * self.reconstruct.flops(H, W)
-        flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2) + (N) * 3 * (64 * 9 + 1))
+        flop += 2 * (N * (64 + 1) * 64 * (self.upscale_factor ** 2) + N * (self.upscale_factor ** 2) * (64 * 9 + 1) * 3)
         return flop
 
 
@@ -256,7 +252,7 @@ def M_Relax(M, num_pixels):
 if __name__ == "__main__":
     input_shape = (360, 640)
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-    net = Net(upscale_factor=4, img_size=input_shape, model='all_swin', input_channel=3, w_size=8).cuda()
+    net = Net(upscale_factor=4, img_size=input_shape, model='all_swin', input_channel=3, w_size=15).cuda()
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
     x = torch.clamp(torch.randn((1, 7, input_shape[0], input_shape[1])) , min=0.0).cuda()
@@ -277,4 +273,3 @@ if __name__ == "__main__":
             print('################## total: ', elps / 1000, ' #######################')
 
     print('exec time: ', exc_time / n_itr / 1000)
-    # print (y_l.shape)

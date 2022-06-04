@@ -64,7 +64,7 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
             optimizer.step()
         else:
             with torch.no_grad():
-                loss = net.calc_loss(LR_left, LR_right, HR_left, HR_right, cfg, is_train=False)
+                loss = net.calc_loss(LR_left, LR_right, HR_left, HR_right, cfg)
         for k, v in net.get_losses().items():
             loss_list[k].append(v)
         if phase == 'train' and idx_step % 50 == 0:

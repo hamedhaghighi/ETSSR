@@ -24,7 +24,7 @@ class BaseModel(nn.Module):
         loss_dict = {k: getattr(self, 'loss_' + k).data.cpu() for k in self.loss_names}
         return loss_dict
 
-    def calc_loss(self, LR_left, LR_right, HR_left, HR_right, cfg, is_train=True):
+    def calc_loss(self, LR_left, LR_right, HR_left, HR_right, cfg):
 
         criterion_L1 = torch.nn.L1Loss().to(cfg.device)
         SR_left, SR_right = self.forward(LR_left, LR_right)
