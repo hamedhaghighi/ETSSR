@@ -28,8 +28,8 @@ class Net(BaseModel):
         self.init_feature = nn.Conv2d(self.input_channel, 64, 3, 1, 1, bias=True)
         if 'CP' in self.model:
             self.condition_feature = nn.Sequential(nn.Conv2d(4, 64, 3, 1, 1, bias=True), nn.LeakyReLU(0.1, inplace=True), nn.Conv2d(64, 64, 3, 1, 1, bias=True))
-        self.n_RDB = 3 if 'MDB' in model else 3
-        self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=3, G=24, n_RDB=self.n_RDB, type='N')
+        self.n_RDB = 3 if 'MDB' in model else 1
+        self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
         num_heads = [4]
         if 'pam' in model :
             if 'light' in model:
@@ -46,7 +46,7 @@ class Net(BaseModel):
         self.f_RDB = RDB(G0=128, C=4, G=32)
         self.CAlayer = CALayer(128)
         self.fusion = nn.Sequential(self.f_RDB, self.CAlayer, nn.Conv2d(128, 64, kernel_size=1, stride=1, padding=0, bias=True))
-        self.reconstruct = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=3, G=24, n_RDB=self.n_RDB, type='N')
+        self.reconstruct = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
         self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
 
         #self.apply(self._init_weights)
@@ -109,6 +109,8 @@ class Net(BaseModel):
         N = H * W
         flop = 0
         flop += 2 * ((self.input_channel * 9 + 1) * N * 64) # adding 1 for bias
+        if 'CP' in self.model:
+            flop += 2 * (N * (4 * 9 + 1)* 64 + N * (64 * 9 + 1) * 64)
         flop += 2 * self.deep_feature.flop(N)
         if 'pam' in self.model:
             flop += self.pam.flop(H, W)
@@ -482,7 +484,7 @@ if __name__ == "__main__":
     # from StreoSwinSR import CoSwinAttn
     # from SwinTransformer import SwinAttn
     H, W, C = 360, 640, 3
-    net = Net(upscale_factor=4, model='MDB_pam', img_size=tuple([H, W]), input_channel=C, w_size=15).cuda()
+    net = Net(upscale_factor=4, model='rdb_pam', img_size=tuple([H, W]), input_channel=C, w_size=15).cuda()
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])

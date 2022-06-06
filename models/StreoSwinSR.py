@@ -27,8 +27,10 @@ class Net(nn.Module):
         self.input_channel = input_channel
         self.upscale_factor = upscale_factor
         self.img_size = img_size
+        if 'CP' in self.model:
+            self.condition_feature = nn.Sequential(nn.Conv2d(4, 64, 3, 1, 1, bias=True), nn.LeakyReLU(0.1, inplace=True), nn.Conv2d(64, 64, 3, 1, 1, bias=True))
         self.init_feature = nn.Conv2d(input_channel, embed_dim, 3, 1, 1, bias=True)
-        depths = [1]
+        depths = [2]
         num_heads = [4]
         if 'swin_interleaved' in self.model:
             self.deep_feature = SwinAttnInterleaved(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
@@ -37,7 +39,7 @@ class Net(nn.Module):
             if 'swin_pam' in self.model:
                 self.co_feature = PAM(embed_dim)
             elif 'all_swin' in self.model:
-                self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
+                self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[2], embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
             self.CAlayer = CALayer(embed_dim * 2)
             self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(embed_dim * 2, embed_dim, kernel_size=1, stride=1, padding=0, bias=True))
             self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
@@ -45,7 +47,7 @@ class Net(nn.Module):
 
         self.apply(self._init_weights)
 
-    def forward(self, x_left, x_right, is_training = 0):
+    def forward(self, x_left, x_right):
         b, c, h, w = x_left.shape
         x_left, mod_pad_h, mod_pad_w = self.check_image_size(x_left)
         x_right, _, _  = self.check_image_size(x_right)
@@ -54,21 +56,25 @@ class Net(nn.Module):
             d_right = x_right[:, 3]
         x_left_upscale = F.interpolate(x_left[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
         x_right_upscale = F.interpolate(x_right[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
+
+        CF_left = self.condition_feature(x_left[:, 3:]) if 'CP' in self.model else None
+        CF_right = self.condition_feature(x_right[:, 3:]) if 'CP' in self.model else None
+
         buffer_left = self.init_feature(x_left[:, :self.input_channel])
         buffer_right = self.init_feature(x_right[:, :self.input_channel])
         if 'swin_interleaved' in self.model:
             buffer_leftF, buffer_rightF = self.deep_feature(buffer_left, buffer_right, d_left, d_right)
         else:
-            buffer_left = self.deep_feature(buffer_left)
-            buffer_right = self.deep_feature(buffer_right)
+            buffer_left = self.deep_feature(buffer_left, CF_left)
+            buffer_right = self.deep_feature(buffer_right, CF_right)
             if 'swin_pam' in self.model:
                 buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right)
             elif 'all_swin' in self.model:
                 buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right, d_left, d_right)
             buffer_leftF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1))
             buffer_rightF = self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
-            buffer_leftF = self.reconstruct(buffer_leftF)
-            buffer_rightF = self.reconstruct(buffer_rightF)
+            buffer_leftF = self.reconstruct(buffer_leftF, CF_left)
+            buffer_rightF = self.reconstruct(buffer_rightF, CF_right)
         out_left = self.upscale(buffer_leftF) + x_left_upscale
         out_right = self.upscale(buffer_rightF) + x_right_upscale
         mod_h = -mod_pad_h * self.upscale_factor if mod_pad_h != 0 else None
@@ -117,15 +123,17 @@ class Net(nn.Module):
     def flop(self, H, W):
         N = H * W
         flop = 0
+        if 'CP' in self.model:
+            flop += 2 * (N * (4 * 9 + 1) * 64 + N * (64 * 9 + 1) * 64)
         # init feature
         flop += 2 * ((self.input_channel * 9 + 1) * N * 64) # adding 1 for bias
-        if self.model == 'swin_interleaved':
+        if 'swin_interleaved' in self.model:
             flop += self.deep_feature.flops(H, W)
         else:
             flop += 2 * self.deep_feature.flops(H, W)
-            if self.model == 'swin_pam':
+            if 'swin_pam' in self.model:
                 flop += self.co_feature.flop(H, W)
-            elif self.model == 'all_swin':
+            elif 'all_swin' in self.model:
                 flop += self.co_feature.flops(H, W)
             flop += 2 * self.deep_feature.flops(H, W)
             flop += 2 * (self.CAlayer.flop(N) + N * (128 + 1) * 64)
@@ -252,7 +260,7 @@ def M_Relax(M, num_pixels):
 if __name__ == "__main__":
     input_shape = (360, 640)
     starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-    net = Net(upscale_factor=4, img_size=input_shape, model='all_swin', input_channel=3, w_size=15).cuda()
+    net = Net(upscale_factor=4, img_size=(360, 645), model='all_swin_CP', input_channel=3, w_size=15).cuda()
     net.train(False)
     total = sum([param.nelement() for param in net.parameters()])
     x = torch.clamp(torch.randn((1, 7, input_shape[0], input_shape[1])) , min=0.0).cuda()
@@ -261,11 +269,11 @@ if __name__ == "__main__":
     exc_time = 0.0
     n_itr = 10
     for _ in range(10):
-        _, _ = net(x, x, 0)
+        _, _ = net(x, x)
     with torch.no_grad():
         for _ in range(n_itr):
             starter.record()
-            _, _ = net(x, x , 0)
+            _, _ = net(x, x)
             ender.record()
             torch.cuda.synchronize()
             elps = starter.elapsed_time(ender)

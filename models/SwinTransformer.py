@@ -278,7 +278,7 @@ class RSTB(nn.Module):
 
         self.conv = nn.Conv2d(dim, dim, 3, 1, 1)
 
-    def forward(self, x, x_size):
+    def forward(self, x, x_size, condition=None):
         out = x
         for blk in self.blocks:
             if self.use_checkpoint:
@@ -287,6 +287,7 @@ class RSTB(nn.Module):
                 x = blk(x, x_size)
         x = x.transpose(1, 2).view(-1, self.dim, x_size[0], x_size[1])
         x = self.conv(x)
+        x = x if condition is None else x + condition
         x = x.flatten(2).transpose(1, 2)
         return x + out
 
@@ -349,12 +350,12 @@ class SwinAttn(nn.Module):
        
 
 
-    def forward(self, x):
+    def forward(self, x, condition=None):
 
         x_size = (x.shape[2], x.shape[3])
         x = x.flatten(2).transpose(1, 2)
         for layer in self.layers:
-            x = layer(x, x_size)
+            x = layer(x, x_size, condition)
         B, HW, C = x.shape
         x = x.transpose(1, 2).view(B, C, x_size[0], x_size[1])
         return x
