@@ -38,14 +38,14 @@ class Net(nn.Module):
         if 'swin_interleaved' in self.model:
             self.deep_feature = SwinAttnInterleaved(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
         else:
-            self.deep_feature = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2, condition=self.condition)
+            self.deep_feature = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
             if 'swin_pam' in self.model:
                 self.co_feature = PAM(embed_dim)
             elif 'all_swin' in self.model:
                 self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[2], embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
             self.CAlayer = CALayer(embed_dim * 2)
             self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(embed_dim * 2, embed_dim, kernel_size=1, stride=1, padding=0, bias=True))
-            self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2, condition=self.condition)
+            self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
         self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
 
         self.apply(self._init_weights)

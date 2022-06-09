@@ -257,7 +257,7 @@ class RSTB(nn.Module):
 
     def __init__(self, dim, input_resolution, depth, num_heads, window_size,
                  mlp_ratio=4., qkv_bias=True, drop=0.,
-                 drop_path=0., norm_layer=nn.LayerNorm, use_checkpoint=False, condition=False):
+                 drop_path=0., norm_layer=nn.LayerNorm, use_checkpoint=False):
         super(RSTB, self).__init__()
         
         self.use_checkpoint = use_checkpoint
@@ -276,7 +276,7 @@ class RSTB(nn.Module):
                                  norm_layer=norm_layer)
             for i in range(depth)])
 
-        self.conv = nn.Conv2d(2 * dim, dim, 3, 1, 1) if condition else nn.Conv2d(dim, dim, 3, 1, 1)
+        self.conv = nn.Conv2d(dim, dim, 3, 1, 1)
 
     def forward(self, x, x_size, condition=None):
         out = x
@@ -286,8 +286,7 @@ class RSTB(nn.Module):
             else:
                 x = blk(x, x_size)
         x = x.transpose(1, 2).view(-1, self.dim, x_size[0], x_size[1])
-        x = x if condition is None else torch.cat([condition, x], dim=1)
-        x = self.conv(x)
+        x = self.conv(x) if condition is None else self.conv(x) + condition
         x = x.flatten(2).transpose(1, 2)
         return x + out
 
@@ -343,8 +342,7 @@ class SwinAttn(nn.Module):
                          drop_path=dpr[sum(depths[:i_layer]):sum(
                              depths[:i_layer + 1])],  # no impact on SR results
                          norm_layer=norm_layer,
-                         use_checkpoint=use_checkpoint,
-                         condition=condition
+                         use_checkpoint=use_checkpoint
                          )
             self.layers.append(layer)
         self.norm = norm_layer(self.num_features)
