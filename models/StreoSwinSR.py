@@ -43,6 +43,8 @@ class Net(nn.Module):
                 self.co_feature = PAM(embed_dim)
             elif 'all_swin' in self.model:
                 self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[2], embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
+            elif 'indp' in self.model:
+                self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=[2], embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
             self.CAlayer = CALayer(embed_dim * 2)
             self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(embed_dim * 2, embed_dim, kernel_size=1, stride=1, padding=0, bias=True))
             self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
@@ -73,7 +75,12 @@ class Net(nn.Module):
             if 'swin_pam' in self.model:
                 buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right)
             elif 'all_swin' in self.model:
-                buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right, d_left, d_right)
+                if 'wo_d' in self.model:
+                    buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right)
+                else:
+                    buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right, d_left, d_right)
+            elif 'indp' in self.model:
+                buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
             buffer_leftF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1))
             buffer_rightF = self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
             buffer_leftF = self.reconstruct(buffer_leftF, CF_left)
