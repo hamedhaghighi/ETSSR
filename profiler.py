@@ -11,8 +11,8 @@ if __name__ == "__main__":
     # from utils import disparity_alignment
     # from StreoSwinSR import CoSwinAttn
     # from SwinTransformer import SwinAttn
-    model_name = 'EDSR'
-    H, W, C = 360, 640, 3
+    model_name = 'mine_rdb_pam'
+    H, W, C = 360, 645, 3
     upscale_factor = 4
     w_size = 15
     net = model_selection(model_name, upscale_factor, H, W, C, w_size)

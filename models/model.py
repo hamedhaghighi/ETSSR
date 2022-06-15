@@ -28,7 +28,7 @@ class Net(BaseModel):
         self.init_feature = nn.Conv2d(self.input_channel, 64, 3, 1, 1, bias=True)
         if 'CP' in self.model:
             self.condition_feature = nn.Sequential(nn.Conv2d(4, 64, 3, 1, 1, bias=True), nn.LeakyReLU(0.1, inplace=True), nn.Conv2d(64, 64, 3, 1, 1, bias=True))
-        self.n_RDB = 3 if 'MDB' in model else 1
+        self.n_RDB = 3 if 'MDB' in model else 3
         self.deep_feature = RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='P') if 'MDB' in model else RDG(G0=64, C=4, G=24, n_RDB=self.n_RDB, type='N')
         num_heads = [4]
         if 'pam' in model :
