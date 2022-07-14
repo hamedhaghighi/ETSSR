@@ -33,7 +33,7 @@ class Net(nn.Module):
             self.condition = True
 
         self.init_feature = nn.Conv2d(input_channel, embed_dim, 3, 1, 1, bias=True)
-        depths = [6]
+        depths = [4]
         num_heads = [4]
         if 'swin_interleaved' in self.model:
             self.deep_feature = SwinAttnInterleaved(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)

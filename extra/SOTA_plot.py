@@ -1,18 +1,15 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-PSNR_swinT = np.array([38.22, 38.39, 38.57])
 
-FLOPS_swinT = np.array([365.30, 537.21, 709.12])
-
-PSNR_ipassr = np.array([37.84, 37.96, 38.10])
-
-FLOPS_ipassr = np.array([315.63, 512.33, 777.77])
-
-params_swinT = np.array([0.47, 0.62, 0.76]) * 100
-params_ipassr = np.array([0.54, 0.80, 1.09]) * 100
-plt.scatter(FLOPS_swinT, PSNR_swinT, params_swinT, 'green', "o")
-plt.scatter(FLOPS_ipassr, PSNR_ipassr, params_ipassr, 'blue', "*")
-plt.xlim([300, 1000])
-plt.ylim([37.5, 39])
+all_flops = [4.917, 1.745, 1.102, 0.362, 0.533, 0.703]
+all_psnrs = [37.49, 37.90, 38.12, 38.21, 38.45, 38.55]
+colors = ['green', 'blue', 'yellow', 'red', 'red', 'red']
+all_params = np.array([0.67, 1.42, 1.43, 0.47,0.62, 0.67]) * 100
+plt.scatter(all_flops, all_psnrs, all_params, colors, "o")
+plt.xlim([0, 10])
+plt.ylim([37, 39])
+plt.xlabel('FLOPs')
+plt.ylabel('PSNR')
+plt.legend()
 plt.show()
