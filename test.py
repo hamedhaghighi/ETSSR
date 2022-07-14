@@ -98,8 +98,8 @@ def test(cfg):
     avg_psnr_right_list = []
     avg_ssim_left_list = []
     avg_ssim_right_list = []
-    indices_to_save = {'Town01': [29, 92], 'Town02': [9, 31, 100], 'Town03': [2, 3, 53], 'Town04': [
-        26, 97], 'Town05': [16, 28, 29, 51], 'Town06': [17, 18, 53, 54], 'Town07': [2, 1, 15, 59, 96, 97], 'Town11': [43]}
+    indices_to_save = {'Town01': [29, 92], 'Town02': [9, 31, 101], 'Town03': [2, 3, 53], 'Town04': [
+        26, 97], 'Town05': [16, 28, 29, 51], 'Town06': [17, 18, 53, 54], 'Town07': [2, 1, 15, 59, 96, 97], 'Town11': [47]}
     with torch.no_grad():
         for env in sorted(os.listdir(root_dir)):
             if env in indices_to_save or cfg.metric_for_all:
@@ -110,7 +110,8 @@ def test(cfg):
                 psnr_right_list, psnr_left_list, ssim_left_list, ssim_right_list = [] , [], [], []
                 
                 for idx in range(len(test_set)):
-                    if idx in indices_to_save[env] or cfg.metric_for_all:
+                    data_idx = idx if cfg.metric_for_all else int(test_set.file_list[idx].split('_')[-1])
+                    if data_idx in indices_to_save[env] or cfg.metric_for_all:
                         HR_left, HR_right, LR_left, LR_right = test_set[idx]
                         h, w, _ = LR_left.shape
                         h_patch = biggest_divisior(h)
@@ -124,8 +125,7 @@ def test(cfg):
                         lr_left_patches = patchify_img(LR_left, h_patch, w_patch)
                         lr_right_patches = patchify_img(LR_right, h_patch, w_patch)
                         if cfg.local_metric:
-                            HR_left, HR_right = _pad(HR_left, cfg.scale_factor * pad_h, cfg.scale_factor * pad_w), _pad(
-                                HR_right, cfg.scale_factor * pad_h, cfg.scale_factor * pad_w)
+                            HR_left, HR_right = _pad(HR_left, cfg.scale_factor * pad_h, cfg.scale_factor * pad_w), _pad(HR_right, cfg.scale_factor * pad_h, cfg.scale_factor * pad_w)
                             hr_left_patches = patchify_img(HR_left, cfg.scale_factor * h_patch, cfg.scale_factor * w_patch)
                             hr_right_patches = patchify_img(HR_right, cfg.scale_factor * h_patch, cfg.scale_factor * w_patch)
                         # batch_size = lr_left_patches.shape[0]
@@ -162,15 +162,15 @@ def test(cfg):
                             
 
 
-                        if env in indices_to_save and idx in indices_to_save[env]:
+                        if not cfg.metric_for_all and env in indices_to_save and data_idx in indices_to_save[env]:
                             def save_array(array, name, psnr=None, ssim=None):
                                 im = Image.fromarray(array)
                                 if psnr is not None and ssim is not None:
                                     img_path = os.path.join(
-                                        results_dir, '{}_{}_img_{}_{:.2f}_{:.4f}.png'.format(name, env, idx, psnr, ssim))
+                                        results_dir, '{}_{}_img_{}_{:.2f}_{:.4f}.png'.format(name, env, data_idx, psnr, ssim))
                                 else:
                                     img_path = os.path.join(
-                                        results_dir, '{}_{}_img_{}.png'.format(name, env, idx))
+                                        results_dir, '{}_{}_img_{}.png'.format(name, env, data_idx))
                                 im.save(img_path)
                             
                             save_array(sr_left[..., :3].astype('uint8'), 'sr_left', psnr_left_list[-1], ssim_left_list[-1])
