@@ -2,18 +2,16 @@ import numpy as np
 from skimage import morphology
 import torch
 import torch.nn as nn
-
+from models.BaseModel import BaseModel
 
 class _Residual_Block(nn.Module):
     def __init__(self):
         super(_Residual_Block, self).__init__()
 
-        self.conv1 = nn.Conv2d(in_channels=64, out_channels=64,
-                               kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
         self.in1 = nn.InstanceNorm2d(64, affine=True)
         self.relu = nn.LeakyReLU(0.2, inplace=True)
-        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64,
-                               kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
         self.in2 = nn.InstanceNorm2d(64, affine=True)
 
     def forward(self, x):
@@ -24,9 +22,10 @@ class _Residual_Block(nn.Module):
         return output
 
 
-class _NetG_SAM(nn.Module):
-    def __init__(self, n_intervals, n_blocks=16, inchannels=3, nfeats=64, outchannels=3):
+class _NetG_SAM(BaseModel):
+    def __init__(self, upscale_factor, n_blocks=16, inchannels=3, nfeats=64, outchannels=3):
         super(_NetG_SAM, self).__init__()
+        n_intervals = [6, 11]
         self.n_blocks = n_blocks
         self.intervals = n_intervals
         if isinstance(n_intervals, list):
@@ -34,14 +33,12 @@ class _NetG_SAM(nn.Module):
         if isinstance(n_intervals, int):
             self.nbody = self.n_blocks // n_intervals
 
-        self.conv_input = nn.Conv2d(
-            in_channels=3, out_channels=64, kernel_size=9, stride=1, padding=4, bias=False)
+        self.conv_input = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=9, stride=1, padding=4, bias=False)
         self.relu = nn.LeakyReLU(0.2, inplace=True)
 
         self.residual = self.make_layer(_Residual_Block, 16)
 
-        self.conv_mid = nn.Conv2d(
-            in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv_mid = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
         self.bn_mid = nn.InstanceNorm2d(64, affine=True)
 
         self.upscale4x = nn.Sequential(
@@ -55,8 +52,7 @@ class _NetG_SAM(nn.Module):
             nn.LeakyReLU(0.2, inplace=True),
         )
 
-        self.conv_output = nn.Conv2d(
-            in_channels=64, out_channels=3, kernel_size=9, stride=1, padding=4, bias=False)
+        self.conv_output = nn.Conv2d(in_channels=64, out_channels=3, kernel_size=9, stride=1, padding=4, bias=False)
 
         sam_layer = []
         for _ in range(self.nbody):
@@ -71,37 +67,30 @@ class _NetG_SAM(nn.Module):
 
     def forward(self, left, right):
         buffer_left, buffer_right = self.relu(
-            self.conv_input(left)), self.relu(self.conv_input(right))
+            self.conv_input(left[:, :3])), self.relu(self.conv_input(right[:, :3]))
         residual_left, residual_right = buffer_left, buffer_right
         layers = 0
         image_map = []
         image_mask = []
         for i in range(self.n_blocks):
-            buffer_left, buffer_right = self.residual[i](
-                buffer_left), self.residual[i](buffer_right)
+            buffer_left, buffer_right = self.residual[i](buffer_left), self.residual[i](buffer_right)
             if isinstance(self.intervals, list):
                 if (i + 1) in self.intervals:
-                    buffer_left, buffer_right, map, mask = self.sam_layer[layers](
-                        buffer_left, buffer_right)
+                    buffer_left, buffer_right, map, mask = self.sam_layer[layers](buffer_left, buffer_right)
                     layers = layers + 1
                     image_map.append(map)
                     image_mask.append(mask)
             if isinstance(self.intervals, int):
                 if (i + 1) % self.intervals == 0:
-                    buffer_left, buffer_right, map, mask = self.sam_layer[layers](
-                        buffer_left, buffer_right)
+                    buffer_left, buffer_right, map, mask = self.sam_layer[layers](buffer_left, buffer_right)
                     layers = layers + 1
                     image_map.append(map)
                     image_mask.append(mask)
-        buffer_left, buffer_right = self.bn_mid(self.conv_mid(
-            buffer_left)), self.bn_mid(self.conv_mid(buffer_right))
-        buffer_left, buffer_right = torch.add(
-            buffer_left, residual_left), torch.add(buffer_right, residual_right)
-        buffer_left, buffer_right = self.upscale4x(
-            buffer_left), self.upscale4x(buffer_right)
-        out_left, out_right = self.conv_output(
-            buffer_left), self.conv_output(buffer_right)
-        return out_left, out_right, image_map, image_mask
+        buffer_left, buffer_right = self.bn_mid(self.conv_mid(buffer_left)), self.bn_mid(self.conv_mid(buffer_right))
+        buffer_left, buffer_right = torch.add(buffer_left, residual_left), torch.add(buffer_right, residual_right)
+        buffer_left, buffer_right = self.upscale4x(buffer_left), self.upscale4x(buffer_right)
+        out_left, out_right = self.conv_output(buffer_left), self.conv_output(buffer_right)
+        return out_left, out_right
 
 
 class _NetD(nn.Module):
@@ -253,14 +242,6 @@ class SAM(nn.Module):  # stereo attention block
             (M_right_to_left.contiguous().view(b, h, w, w), M_left_to_right.contiguous().view(b, h, w, w)),\
             (V_right_to_left, V_left_to_right)
 
-
-def matric():
-    net = _NetG_SAM([])
-    from thop import profile
-    flops, params = profile(
-        net, (torch.ones(1, 3, 100, 100), torch.ones(1, 3, 100, 100)))
-    print('   params: %.5fM' % (params / 1e6))
-    print('   FLOPs: %.5fGFlops' % (flops / 1e9))
 
 
 def morphologic_process(mask):
