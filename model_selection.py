@@ -5,6 +5,8 @@ from model_zoo.VDSR import VDSR
 from model_zoo.RDN import RDN
 from model_zoo.RCAN import RCAN
 from model_zoo.EDSR import EDSR
+from model_zoo.EDSR import EDSR
+from model_zoo.SRresNet_SAM import _NetG_SAM
 
 def model_selection(model_name, upscale_factor=2, H=None, W=None, C=None, w_size=None, device='cuda'):
     if 'mine' in model_name:
@@ -21,4 +23,6 @@ def model_selection(model_name, upscale_factor=2, H=None, W=None, C=None, w_size
         net = RCAN(upscale_factor)
     elif model_name == 'EDSR':
         net = EDSR(upscale_factor)
+    elif model_name == 'SAM':
+        net = _NetG_SAM(upscale_factor)
     return net.to(device)
