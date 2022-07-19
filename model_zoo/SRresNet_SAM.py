@@ -39,7 +39,7 @@ class _NetG_SAM(BaseModel):
         self.residual = self.make_layer(_Residual_Block, 16)
 
         self.conv_mid = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn_mid = nn.InstanceNorm2d(64, affine=True)
+        # self.bn_mid = nn.InstanceNorm2d(64, affine=True)
 
         self.upscale4x = nn.Sequential(
             nn.Conv2d(in_channels=64, out_channels=256,
@@ -86,7 +86,7 @@ class _NetG_SAM(BaseModel):
                     layers = layers + 1
                     image_map.append(map)
                     image_mask.append(mask)
-        buffer_left, buffer_right = self.bn_mid(self.conv_mid(buffer_left)), self.bn_mid(self.conv_mid(buffer_right))
+        # buffer_left, buffer_right = self.bn_mid(self.conv_mid(buffer_left)), self.bn_mid(self.conv_mid(buffer_right))
         buffer_left, buffer_right = torch.add(buffer_left, residual_left), torch.add(buffer_right, residual_right)
         buffer_left, buffer_right = self.upscale4x(buffer_left), self.upscale4x(buffer_right)
         out_left, out_right = self.conv_output(buffer_left), self.conv_output(buffer_right)
