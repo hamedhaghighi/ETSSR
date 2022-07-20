@@ -31,23 +31,22 @@ class Net(nn.Module):
         if 'CP' in self.model:
             self.condition_feature = nn.Sequential(nn.Conv2d(4, 64, 3, 1, 1, bias=True), nn.LeakyReLU(0.1, inplace=True), nn.Conv2d(64, 64, 3, 1, 1, bias=True))
             self.condition = True
-
-        self.init_feature = nn.Conv2d(input_channel, embed_dim, 3, 1, 1, bias=True)
+        if 'IF' in self.model:
+            self.init_feature = nn.Conv2d(2 * input_channel, embed_dim, 3, 1, 1, bias=True)
+        else:
+            self.init_feature = nn.Conv2d(input_channel, embed_dim, 3, 1, 1, bias=True)
         depths = [4]
         num_heads = [4]
-        if 'swin_interleaved' in self.model:
-            self.deep_feature = SwinAttnInterleaved(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
-        else:
-            self.deep_feature = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
-            if 'swin_pam' in self.model:
-                self.co_feature = PAM(embed_dim)
-            elif 'all_swin' in self.model:
-                self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[2], embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
-            elif 'indp' in self.model:
-                self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=[2], embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
-            self.CAlayer = CALayer(embed_dim * 2)
-            self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(embed_dim * 2, embed_dim, kernel_size=1, stride=1, padding=0, bias=True))
-            self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
+        self.deep_feature = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
+        if 'swin_pam' in self.model:
+            self.co_feature = PAM(embed_dim)
+        elif 'all_swin' in self.model:
+            self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[2], embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
+        elif 'indp' in self.model:
+            self.swin = SwinAttn(img_size=img_size, window_size=w_size, depths=[2], embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
+        self.CAlayer = CALayer(embed_dim * 2)
+        self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(embed_dim * 2, embed_dim, kernel_size=1, stride=1, padding=0, bias=True))
+        self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
         self.upscale = nn.Sequential(nn.Conv2d(64, 64 * upscale_factor ** 2, 1, 1, 0, bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(64, 3, 3, 1, 1, bias=True))
 
         self.apply(self._init_weights)
@@ -64,14 +63,22 @@ class Net(nn.Module):
 
         CF_left = self.condition_feature(x_left[:, 3:]) if 'CP' in self.model else None
         CF_right = self.condition_feature(x_right[:, 3:]) if 'CP' in self.model else None
-
-        buffer_left = self.init_feature(x_left[:, :self.input_channel])
-        buffer_right = self.init_feature(x_right[:, :self.input_channel])
-        if 'swin_interleaved' in self.model:
-            buffer_leftF, buffer_rightF = self.deep_feature(buffer_left, buffer_right, d_left, d_right)
+        if 'IF' in self.model:
+            x_left = x_right = torch.cat([x_left[:, :3], x_right[:, :3]], dim=1)
         else:
-            buffer_left = self.deep_feature(buffer_left, CF_left)
-            buffer_right = self.deep_feature(buffer_right, CF_right)
+            x_left = x_left[:, :3]
+            x_right = x_right[:, :3]
+        ###### init feature
+        buffer_left = self.init_feature(x_left)
+        buffer_right = self.init_feature(x_right)
+
+        if 'EF' in self.model:
+            buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right, d_left, d_right)
+        ## Deep Feature extraction
+        buffer_left = self.deep_feature(buffer_leftT if 'EF' in self.model else buffer_left, CF_left)
+        buffer_right = self.deep_feature(buffer_rightT if 'EF' in self.model else buffer_right, CF_right)
+        ### Cross View Fusion
+        if not 'EF' in self.model and not 'LF' in self.model:
             if 'swin_pam' in self.model:
                 buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right)
             elif 'all_swin' in self.model:
@@ -81,14 +88,25 @@ class Net(nn.Module):
                     buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right, d_left, d_right)
             elif 'indp' in self.model:
                 buffer_leftT, buffer_rightT = self.swin(buffer_left), self.swin(buffer_right)
-            buffer_leftF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1))
-            buffer_rightF = self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
+        #### Reconstruction
+        if 'LF' in self.model:
+            buffer_left = self.reconstruct(buffer_left, CF_left)
+            buffer_right = self.reconstruct(buffer_right, CF_right)
+            buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right)
+        ### Intra view Fusion
+        buffer_leftF = self.fusion(torch.cat([buffer_left, buffer_leftT], dim=1))
+        buffer_rightF = self.fusion(torch.cat([buffer_right, buffer_rightT], dim=1))
+
+        if not 'LF' in self.model:
             buffer_leftF = self.reconstruct(buffer_leftF, CF_left)
             buffer_rightF = self.reconstruct(buffer_rightF, CF_right)
+        ### Upscaling
         out_left = self.upscale(buffer_leftF) + x_left_upscale
         out_right = self.upscale(buffer_rightF) + x_right_upscale
+
         mod_h = -mod_pad_h * self.upscale_factor if mod_pad_h != 0 else None
         mod_w = -mod_pad_w * self.upscale_factor if mod_pad_w != 0 else None
+
         return out_left[..., :mod_h, :mod_w], out_right[..., :mod_h, :mod_w]
 
     @torch.jit.ignore
