@@ -3,6 +3,8 @@ from skimage import morphology
 import torch
 import torch.nn as nn
 from models.BaseModel import BaseModel
+from torchvision import models
+import torch.utils.model_zoo as model_zoo
 
 class _Residual_Block(nn.Module):
     def __init__(self):
@@ -25,6 +27,7 @@ class _Residual_Block(nn.Module):
 class _NetG_SAM(BaseModel):
     def __init__(self, upscale_factor, n_blocks=16, inchannels=3, nfeats=64, outchannels=3):
         super(_NetG_SAM, self).__init__()
+        self.loss_names.append('content')
         n_intervals = [6, 11]
         self.n_blocks = n_blocks
         self.intervals = n_intervals
@@ -59,6 +62,22 @@ class _NetG_SAM(BaseModel):
             sam_layer.append(SAM(nfeats))
         self.sam_layer = nn.Sequential(*sam_layer)
 
+        print('===> Loading VGG model')
+        netVGG = models.vgg19()
+        netVGG.load_state_dict(model_zoo.load_url('https://download.pytorch.org/models/vgg19-dcbb9e9d.pth'))
+
+        class _content_model(nn.Module):
+            def __init__(self):
+                super(_content_model, self).__init__()
+                self.feature = nn.Sequential(*list(netVGG.features.children())[:-1])
+
+            def forward(self, x):
+                out = self.feature(x)
+                return out
+
+        self.netContent = _content_model().cuda()
+        
+
     def make_layer(self, block, num_of_layer):
         layers = []
         for _ in range(num_of_layer):
@@ -91,6 +110,38 @@ class _NetG_SAM(BaseModel):
         buffer_left, buffer_right = self.upscale4x(buffer_left), self.upscale4x(buffer_right)
         out_left, out_right = self.conv_output(buffer_left), self.conv_output(buffer_right)
         return out_left, out_right
+
+
+    def calc_loss(self, LR_left, LR_right, HR_left, HR_right, cfg):
+
+        criterion_L1 = torch.nn.L1Loss().to(cfg.device)
+        SR_left, SR_right = self.forward(LR_left, LR_right)
+        ''' SR Loss '''
+        self.loss_SR = criterion_L1(SR_left, HR_left) + criterion_L1(SR_right, HR_right)
+
+
+        with torch.no_grad():
+            HR_l_content, HR_R_content = self.netContent(HR_left), self.netContent(HR_right)
+            SR_l_content, SR_R_content = self.netContent(SR_left), self.netContent(SR_right)
+
+        self.loss_content = criterion_L1(HR_l_content, SR_l_content) + criterion_L1(HR_R_content, SR_R_content)
+        self.loss_SR = self.loss_SR + self.loss_content 
+
+
+        # if not is_train:
+        #     self.loss_names.extend(['psnr_left', 'ssim_left', 'psnr_right', 'ssim_right'])
+        #     nd_array_sr_left, nd_array_sr_right = toNdarray(SR_left), toNdarray(SR_right)
+        #     nd_array_hr_left, nd_array_hr_right = toNdarray(HR_left), toNdarray(HR_right)
+        #     psnr_left = [compare_psnr(hr, sr) for hr, sr in zip(nd_array_hr_left, nd_array_sr_left)]
+        #     psnr_right = [compare_psnr(hr, sr) for hr, sr in zip(nd_array_hr_right, nd_array_sr_right)]
+        #     ssim_left = [compare_ssim(hr, sr, multichannel=True) for hr, sr in zip(nd_array_hr_left, nd_array_sr_left)]
+        #     ssim_right = [compare_ssim(hr, sr, multichannel=True) for hr, sr in zip(nd_array_hr_right, nd_array_sr_right)]
+        #     self.loss_psnr_left = torch.tensor(np.array(psnr_left).mean())
+        #     self.loss_psnr_right = torch.tensor(np.array(psnr_right).mean())
+        #     self.loss_ssim_left = torch.tensor(np.array(ssim_left).mean())
+        #     self.loss_ssim_right = torch.tensor(np.array(ssim_right).mean())
+    
+        return self.loss_SR
 
 
 class _NetD(nn.Module):
