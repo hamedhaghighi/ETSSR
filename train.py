@@ -97,7 +97,7 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
                 batch_size = 1
                 lr_left, lr_right = toTensor(LR_left).to(cfg.device).unsqueeze(0), toTensor(LR_right).to(cfg.device).unsqueeze(0)
                 with torch.no_grad():
-                    SR_left, SR_right = net(lr_left, lr_right)
+                    SR_left, _, _, SR_right, _, _ = net(lr_left, lr_right)
                 SR_left, SR_right = toNdarray(torch.clamp(SR_left, 0, 1)).squeeze(), toNdarray(torch.clamp(SR_right, 0, 1)).squeeze()
 
                 psnr_left = compare_psnr(HR_left[..., :3].astype('uint8'), SR_left)
