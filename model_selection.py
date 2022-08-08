@@ -5,7 +5,6 @@ from model_zoo.VDSR import VDSR
 from model_zoo.RDN import RDN
 from model_zoo.RCAN import RCAN
 from model_zoo.EDSR import EDSR
-from model_zoo.EDSR import EDSR
 from model_zoo.SRresNet_SAM import _NetG_SAM
 
 def model_selection(model_name, upscale_factor=2, H=None, W=None, C=None, w_size=None, device='cuda'):

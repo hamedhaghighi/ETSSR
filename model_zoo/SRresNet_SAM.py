@@ -5,6 +5,8 @@ import torch.nn as nn
 from models.BaseModel import BaseModel
 from torchvision import models
 import torch.utils.model_zoo as model_zoo
+import math
+
 
 class _Residual_Block(nn.Module):
     def __init__(self):
@@ -58,6 +60,13 @@ class _NetG_SAM(BaseModel):
         )
 
         self.conv_output = nn.Conv2d(in_channels=64, out_channels=3, kernel_size=9, stride=1, padding=4, bias=False)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
+                m.weight.data.normal_(0, math.sqrt(2. / n))
+                if m.bias is not None:
+                    m.bias.data.zero_()
 
         sam_layer = []
         for _ in range(self.nbody):
