@@ -546,39 +546,39 @@ class SSRDEFNet(nn.Module):
         out4_left = self.final2(buffer_leftF2) + x_left_upscale
         out4_right = self.final2(buffer_rightF2) + x_right_upscale
 
-        if is_training == 0:
-            index=(torch.arange(w*self.upscale_factor).view(1, 1, w*self.upscale_factor).repeat(1,h*self.upscale_factor,1)).to(buffer_left.device)
+        # if is_training == 0:
+        #     index=(torch.arange(w*self.upscale_factor).view(1, 1, w*self.upscale_factor).repeat(1,h*self.upscale_factor,1)).to(buffer_left.device)
 
-            disp1 = index-disp1.view(1,h*self.upscale_factor,w*self.upscale_factor)
-            disp2 = disp2.view(1,h*self.upscale_factor,w*self.upscale_factor)-index
-            disp1[disp1<0]=0
-            disp2[disp2<0]=0
-            disp1[disp1>192]=192
-            disp2[disp2>192]=192
+        #     disp1 = index-disp1.view(1 ,h*self.upscale_factor,w*self.upscale_factor)
+        #     disp2 = disp2.view(1,h*self.upscale_factor,w*self.upscale_factor)-index
+        #     disp1[disp1<0]=0
+        #     disp2[disp2<0]=0
+        #     disp1[disp1>192]=192
+        #     disp2[disp2>192]=192
 
-            disp1_3 = index-disp1_3.view(1,h*self.upscale_factor,w*self.upscale_factor)
-            disp2_3 = disp2_3.view(1,h*self.upscale_factor,w*self.upscale_factor)-index
-            disp1_3[disp1_3<0]=0
-            disp2_3[disp2_3<0]=0
-            disp1_3[disp1_3>192]=192
-            disp2_3[disp2_3>192]=192
+        #     disp1_3 = index-disp1_3.view(1,h*self.upscale_factor,w*self.upscale_factor)
+        #     disp2_3 = disp2_3.view(1,h*self.upscale_factor,w*self.upscale_factor)-index
+        #     disp1_3[disp1_3<0]=0
+        #     disp2_3[disp2_3<0]=0
+        #     disp1_3[disp1_3>192]=192
+        #     disp2_3[disp2_3>192]=192
 
-            disp1_high = index-disp1_high.view(1,h*self.upscale_factor,w*self.upscale_factor)
-            disp2_high = disp2_high.view(1,h*self.upscale_factor,w*self.upscale_factor)-index
-            disp1_high[disp1_high<0]=0
-            disp2_high[disp2_high<0]=0
-            disp1_high[disp1_high>192]=192
-            disp2_high[disp2_high>192]=192
+        #     disp1_high = index-disp1_high.view(1,h*self.upscale_factor,w*self.upscale_factor)
+        #     disp2_high = disp2_high.view(1,h*self.upscale_factor,w*self.upscale_factor)-index
+        #     disp1_high[disp1_high<0]=0
+        #     disp2_high[disp2_high<0]=0
+        #     disp1_high[disp1_high>192]=192
+        #     disp2_high[disp2_high>192]=192
 
-            disp1_high2 = index-disp1_high2.view(1,h*self.upscale_factor,w*self.upscale_factor)
-            disp2_high2 = disp2_high2.view(1,h*self.upscale_factor,w*self.upscale_factor)-index
-            disp1_high2[disp1_high2<0]=0
-            disp2_high2[disp2_high2<0]=0
-            disp1_high2[disp1_high2>192]=192
-            disp2_high2[disp2_high2>192]=192
+        #     disp1_high2 = index-disp1_high2.view(1,h*self.upscale_factor,w*self.upscale_factor)
+        #     disp2_high2 = disp2_high2.view(1,h*self.upscale_factor,w*self.upscale_factor)-index
+        #     disp1_high2[disp1_high2<0]=0
+        #     disp2_high2[disp2_high2<0]=0
+        #     disp1_high2[disp1_high2>192]=192
+        #     disp2_high2[disp2_high2>192]=192
 
             # return out1_left, out1_right, out2_left, out2_right, out3_left, out3_right, out4_left, out4_right, (disp1, disp2), (disp1_3, disp2_3), (disp1_high, disp2_high), (disp1_high2, disp2_high2)
-            return  out4_left, out4_right
+        return  out4_left, out4_right
         
     def flop(self, H, W):
         N = H * W
