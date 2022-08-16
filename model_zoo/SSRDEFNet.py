@@ -321,6 +321,7 @@ class SSRDEFNet(nn.Module):
         self.resblock = RDB(G0=64, C=2, G=24)
 
     def forward(self, x_left, x_right):
+        x_left , x_right = x_left[:, :3], x_right[:, :3]
         is_training = 0
         x_left_upscale = F.interpolate(x_left, scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
         x_right_upscale = F.interpolate(x_right, scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
@@ -870,7 +871,6 @@ class GetCostVolume(nn.Module):
         coords_x = cur_disp_coords_x / ((width - 1.0) / 2.0) - 1.0  # trans to -1 - 1
         coords_y = cur_disp_coords_y / ((height - 1.0) / 2.0) - 1.0
         grid = torch.stack([coords_x, coords_y], dim=4).view(bs, ndisp * height, width, 2)   #(B, D, H, W, 2)
-        import pdb; pdb.set_trace()
         for i in range(ndisp):
             cost1[:, i, :, :] = (Q * F.grid_sample(K, grid[:, i*height:(i+1)*height, :, :], mode='bilinear', padding_mode='zeros').view(bs, channels,height, width)).mean(dim=1)
 
