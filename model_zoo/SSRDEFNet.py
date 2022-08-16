@@ -259,7 +259,7 @@ class Bottle2neck(nn.Module):
 
         return out
 
-class SSRDEFNet(BaseModel):
+class SSRDEFNet(nn.Module):
     def __init__(self, upscale_factor):
         super(SSRDEFNet, self).__init__()
         self.upscale_factor = upscale_factor
