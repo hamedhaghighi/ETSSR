@@ -39,6 +39,7 @@ class Net(nn.Module):
         num_heads = [4]
         self.deep_feature = SwinAttn(img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
         if 'swin_pam' in self.model:
+            self.pre_pam = nn.Conv2d(embed_dim, 4 * embed_dim, 3, 1, 1, bias=True)
             self.co_feature = PAM(embed_dim)
         elif 'all_swin' in self.model:
             self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size, depths=[2], embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
@@ -80,7 +81,8 @@ class Net(nn.Module):
         ### Cross View Fusion
         if not 'EF' in self.model and not 'LF' in self.model:
             if 'swin_pam' in self.model:
-                buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right)
+                buffer_leftT, buffer_rightT = self.pre_pam(buffer_left) , self.pre_pam(buffer_right)
+                buffer_leftT, buffer_rightT = self.co_feature(buffer_leftT, buffer_rightT)
             elif 'all_swin' in self.model:
                 if 'wo_d' in self.model:
                     buffer_leftT, buffer_rightT = self.co_feature(buffer_left, buffer_right)
@@ -220,11 +222,11 @@ class PAM(nn.Module):
         super(PAM, self).__init__()
         self.device = device
         self.channel = channels
-        self.Q = nn.Conv2d(channels, channels, 1, 1, 0, groups=4, bias=True)
-        self.K = nn.Conv2d(channels, channels, 1, 1, 0, groups=4, bias=True)
+        self.Q = nn.Conv2d(4 * channels, channels, 1, 1, 0, groups=4, bias=True)
+        self.K = nn.Conv2d(4 * channels, channels, 1, 1, 0, groups=4, bias=True)
         self.softmax = nn.Softmax(-1)
-        self.rb = ResB(channels)
-        self.bn = nn.BatchNorm2d(channels)
+        self.rb = ResB(4 * channels)
+        self.bn = nn.BatchNorm2d(4 * channels)
         self.window_centre_table = None
 
 
@@ -246,8 +248,8 @@ class PAM(nn.Module):
         V_left = (M_right_to_left_relaxed.contiguous().view(-1, w).unsqueeze(1) @ M_left_to_right.permute(0, 2, 1).contiguous().view(-1, w).unsqueeze(2)).detach().contiguous().view(b, 1, h, w)  # (B*H*Wr) * Wl * 1
         M_left_to_right_relaxed = M_Relax(M_left_to_right, num_pixels=2)
         V_right = (M_left_to_right_relaxed.contiguous().view(-1, w).unsqueeze(1) @  # (B*H*Wl) * 1 * Wr
-                            M_right_to_left.permute(0, 2, 1).contiguous().view(-1, w).unsqueeze(2)
-                                  ).detach().contiguous().view(b, 1, h, w)   # (B*H*Wr) * Wl * 1
+                            M_right_to_left.permute(0, 2, 1).contiguous().view(-1, w).unsqueeze(2)).detach().contiguous().view(b, 1, h, w)   # (B*H*Wr) * Wl * 1
+        
 
         V_left_tanh = torch.tanh(5 * V_left)
         V_right_tanh = torch.tanh(5 * V_right)
@@ -261,8 +263,8 @@ class PAM(nn.Module):
     def flop(self, H, W):
         N = H * W
         flop = 0
-        flop += 2 * self.rb.flop(N)
-        flop += 2 * N * self.channel * (self.channel + 1)
+        flop += 2 * self.rb.flop(N) / 4
+        flop += 2 * N * self.channel * (4 * self.channel + 1) /4 
         flop += H * (W**2) * self.channel
         # flop += 2 * H * W
         flop += 2 * H * (W**2) * self.channel

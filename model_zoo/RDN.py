@@ -48,7 +48,7 @@ class RDN(BaseModel):
         flop += self.RDG.flop(N)
         flop += conv_flop(N, 64, 64 * self.upscale_factor**2, 1)
         flop += conv_flop(N * self.upscale_factor**2, 64, 3, 3)
-        return flop
+        return 2 * flop
 
 
 class one_conv(nn.Module):

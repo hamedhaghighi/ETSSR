@@ -75,8 +75,8 @@ class cfg_parser():
 def test(cfg):
 
     IC = cfg.input_channel
-    if cfg.local_metric:
-        input_size = tuple([biggest_divisior(cfg.input_resolution[0]), biggest_divisior(cfg.input_resolution[0])])
+    # if cfg.local_metric:
+    input_size = tuple([biggest_divisior(cfg.input_resolution[0]), biggest_divisior(cfg.input_resolution[0])])
     input_size = check_input_size(input_size, cfg.w_size)
     if not 'bicubic' in cfg.model:
         net = model_selection(cfg.model, cfg.scale_factor, input_size[0], input_size[1], IC, cfg.w_size, cfg.device)

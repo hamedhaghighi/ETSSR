@@ -61,11 +61,11 @@ class VDSR(BaseModel):
         N = H * W
         flop = 0
         # input
-        flop += conv_flop(N, 3, 64, 3, False)
+        flop += conv_flop(N *16, 3, 64, 3, False)
         # residual
-        flop += 18 * conv_flop(N, 64, 64, 3, False)
+        flop += 18 * conv_flop(N * 16, 64, 64, 3, False)
         # output
-        flop += conv_flop(N, 64, 3, 3, False)
-        return flop
+        flop += conv_flop(N * 16, 64, 3, 3, False)
+        return 2 * flop
 
 

@@ -6,6 +6,7 @@ from model_zoo.RDN import RDN
 from model_zoo.RCAN import RCAN
 from model_zoo.EDSR import EDSR
 from model_zoo.SRresNet_SAM import _NetG_SAM
+from model_zoo.SSRDEFNet import SSRDEFNet
 
 def model_selection(model_name, upscale_factor=2, H=None, W=None, C=None, w_size=None, device='cuda'):
     if 'mine' in model_name:
@@ -24,4 +25,7 @@ def model_selection(model_name, upscale_factor=2, H=None, W=None, C=None, w_size
         net = EDSR(upscale_factor)
     elif model_name == 'SAM':
         net = _NetG_SAM(upscale_factor)
+    elif model_name == 'SSRDEFNet':
+        net = SSRDEFNet(upscale_factor)
+        
     return net.to(device)

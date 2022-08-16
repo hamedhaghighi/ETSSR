@@ -55,7 +55,7 @@ class EDSR(BaseModel):
             flop += conv_flop(N * 4, 256, 256*4, 1)
             flop += conv_flop(N * 16, 256, 3, 1)
         
-        return flop
+        return 2 * flop
 
 
 class ResB(nn.Module):

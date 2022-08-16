@@ -78,7 +78,7 @@ class PASSRnet(BaseModel):
         flops += conv_flop(N * self.upscale_factor ** 2, 64, 3, 3)
         flops += conv_flop(N * self.upscale_factor ** 2, 3, 3, 3)
         
-        return flops
+        return 2 * flops
 
 
 
