@@ -189,8 +189,8 @@ def test(cfg):
 
     print('psnr_left:%.3f' % np.array(avg_psnr_left_list).mean(),
           'psnr_right:%.3f' % np.array(avg_psnr_right_list).mean())
-    print('ssim_left:%.3f' % np.array(avg_ssim_left_list).mean(),
-          'ssim_right:%.3f' % np.array(avg_ssim_right_list).mean())
+    print('ssim_left:%.4f' % np.array(avg_ssim_left_list).mean(),
+          'ssim_right:%.4f' % np.array(avg_ssim_right_list).mean())
 
 
 if __name__ == '__main__':
