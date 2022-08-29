@@ -16,9 +16,9 @@ def downsample(img, scale, shape=None):
     img_d = img_d.astype('float32')
     if img.shape[-1] > 3:
         if shape is None:
-            img_d[:, :, 3] = cv2.resize(img[:, :, 3], (int(scale * img.shape[1]), int(scale * img.shape[0])))
+            img_d[:, :, 3] = cv2.resize(img[:, :, 3], (int(scale * img.shape[1]), int(scale * img.shape[0]))) / scale
         else:
-            img_d[:, :, 3] = cv2.resize(img[:, :, 3], (shape[1], shape[0]))
+            img_d[:, :, 3] = cv2.resize(img[:, :, 3], (shape[1], shape[0])) / scale
     return img_d
 
 class DataSetLoader(Dataset):
@@ -79,6 +79,7 @@ class DataSetLoader(Dataset):
             img_lr_right = downsample(img_lr_right, sr)
             img_hr_left = downsample(img_hr_left, sr, tuple([img_lr_left.shape[0] * self.scale, img_lr_left.shape[1] * self.scale]))
             img_hr_right = downsample(img_hr_right, sr, tuple([img_lr_left.shape[0] * self.scale, img_lr_left.shape[1] * self.scale]))
+            
         if self.to_tensor:
             # img_hr_left, img_hr_right, img_lr_left, img_lr_right = augmentation(img_hr_left, img_hr_right, img_lr_left, img_lr_right)
             return toTensor(img_hr_left), toTensor(img_hr_right), toTensor(img_lr_left), toTensor(img_lr_right)
