@@ -77,9 +77,13 @@ class DataSetLoader(Dataset):
             sr = self.sample_ratio
             img_lr_left = downsample(img_lr_left, sr)
             img_lr_right = downsample(img_lr_right, sr)
-            img_hr_left = downsample(img_hr_left, sr, tuple([img_lr_left.shape[0] * self.scale, img_lr_left.shape[1] * self.scale]))
-            img_hr_right = downsample(img_hr_right, sr, tuple([img_lr_left.shape[0] * self.scale, img_lr_left.shape[1] * self.scale]))
+            img_hr_left = downsample(img_hr_left, sr)
+            img_hr_right = downsample(img_hr_right, sr)
+            # img_hr_left = downsample(img_hr_left, sr, tuple([img_lr_left.shape[0] * self.scale, img_lr_left.shape[1] * self.scale]))
+            # img_hr_right = downsample(img_hr_right, sr, tuple([img_lr_left.shape[0] * self.scale, img_lr_left.shape[1] * self.scale]))
             
+            
+
         if self.to_tensor:
             # img_hr_left, img_hr_right, img_lr_left, img_lr_right = augmentation(img_hr_left, img_hr_right, img_lr_left, img_lr_right)
             return toTensor(img_hr_left), toTensor(img_hr_right), toTensor(img_lr_left), toTensor(img_lr_right)
