@@ -181,7 +181,7 @@ def test(cfg):
                                 save_array(HR_right[..., :3].astype('uint8'), 'hr_right')
 
                 print('env: ', env, 'psnr_left:%.3f' % np.array(psnr_left_list).mean(), 'psnr_right:%.3f' % np.array(psnr_right_list).mean())
-                print('env: ', env, 'ssim_left:%.3f' % np.array(ssim_left_list).mean(), 'ssim_right:%.3f' % np.array(ssim_right_list).mean())
+                print('env: ', env, 'ssim_left:%.4f' % np.array(ssim_left_list).mean(), 'ssim_right:%.4f' % np.array(ssim_right_list).mean())
                 avg_psnr_left_list.extend(psnr_left_list)
                 avg_psnr_right_list.extend(psnr_right_list)
                 avg_ssim_left_list.extend(ssim_left_list)
