@@ -75,8 +75,9 @@ class cfg_parser():
 def test(cfg):
 
     IC = cfg.input_channel
-    # if cfg.local_metric:
-    input_size = tuple([biggest_divisior(cfg.input_resolution[0]), biggest_divisior(cfg.input_resolution[0])])
+    input_size = tuple([int(cfg.input_resolution[0] * cfg.sample_ratio), int(cfg.input_resolution[1] * cfg.sample_ratio)])
+    if cfg.local_metric:
+        input_size = tuple([biggest_divisior(input_size[0]), biggest_divisior(input_size[1])])
     input_size = check_input_size(input_size, cfg.w_size)
     if not 'bicubic' in cfg.model:
         net = model_selection(cfg.model, cfg.scale_factor, input_size[0], input_size[1], IC, cfg.w_size, cfg.device)
@@ -113,10 +114,10 @@ def test(cfg):
                     if data_idx in indices_to_save[env] or cfg.metric_for_all:
                         HR_left, HR_right, LR_left, LR_right = test_set[idx]
                         h, w, _ = LR_left.shape
-                        h_patch = biggest_divisior(h)
-                        w_patch = biggest_divisior(w)
-                        h_patch = 360
-                        w_patch = 640
+                        
+                        h_patch = biggest_divisior(h) if cfg.local_metric else h
+                        w_patch = biggest_divisior(w) if cfg.local_metric else w
+                            
                         pad_h, pad_w = (h_patch - (h % h_patch)) % h_patch, (w_patch - (w % w_patch)) % w_patch
                         LR_left, LR_right = _pad(LR_left, pad_h, pad_w), _pad(LR_right, pad_h, pad_w)
                         h, w, _ = LR_left.shape
@@ -134,6 +135,7 @@ def test(cfg):
                             batch_size = 2 if cfg.batch_size != -1 else lr_left_patches.shape[0]
                             sr_left_list = []
                             sr_right_list = []
+
                             assert lr_left_patches.shape[0] % batch_size == 0
                             for i in range(lr_left_patches.shape[0]//batch_size):
                                 s = i * batch_size
