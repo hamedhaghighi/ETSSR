@@ -117,7 +117,7 @@ def plot_crop_images(dir, n, exp_names, im):
     psnr_list = []
     ssim_list = []
     i = 0
-    f_size = 15
+    f_size = 14
     axs =  fig.subplots(2, n).flatten()
     for j, view in enumerate(['left', 'right']):
         for exp_name in exp_names:
@@ -141,7 +141,7 @@ def plot_crop_images(dir, n, exp_names, im):
                         psnr_list.append(psnr); ssim_list.append(ssim)
                     else:
                         exp_name = img_filename.split('_')[-1][:-4]
-                        title = '{:.2f}'.format((psnr + psnr_list[i - n])/2) + ', ' + '{:.4f}'.format((ssim + ssim_list[i - n]) / 2) if exp_name!= 'HR' else ''
+                        title = '{:.2f}'.format((psnr + psnr_list[i - n])/2) + ', ' + '{:.3f}'.format((ssim + ssim_list[i - n]) / 2) if exp_name!= 'HR' else ''
                         # plt.title(exp_name + '\n' + title, y =-0.01)
                         axs[i].set_xlabel(exp_name + '\n' + title, fontsize=f_size)
                     # plt.axis('off')
@@ -154,8 +154,9 @@ def plot_crop_images(dir, n, exp_names, im):
     
 if __name__ == '__main__':
     option = 'plot_crop_images'
+    # option = 'plot'
 
-    total_filename = 'Town02_img_9'
+    total_filename = 'Town01_img_29'
     # option = 'plot'
     if 'plot' in option:
         filename = 'left_' + total_filename
@@ -177,7 +178,7 @@ if __name__ == '__main__':
         dir = '../checkpoints/all_results/'
         all_results_img_dir = os.path.join(dir, filename)
         # exp_names = ['Bicubic', 'VDSR', 'EDSR', 'RCAN', 'RDN', 'StereoSR', 'PASSRnet','iPASSR','SSRDEFNet','ETSSR','HR']
-        exp_names = ['Bicubic', 'VDSR', 'StereoSR', 'PASSRnet','SSRDEFNet','iPASSR','ETSSR','HR']
+        exp_names = ['Bicubic', 'VDSR','RCAN','EDSR','RDN', 'StereoSR', 'PASSRnet','SSRDEFNet','iPASSR','ETSSR','HR']
         # for fn in os.listdir(all_results_img_dir):
         #     if 'Cropped' not in fn and 'HR' in fn and 'left' in fn:
         #         im = plt.imread(os.path.join(all_results_img_dir, fn))
