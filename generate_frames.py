@@ -126,16 +126,12 @@ def test(cfg):
 
             def save_array(array, name, psnr=None, ssim=None):
                 im = Image.fromarray(array)
-                if psnr is not None and ssim is not None:
-                    img_path = os.path.join(
-                        results_dir, '{}_{}_img_{}_{:.2f}_{:.4f}.png'.format(name, env, data_idx, psnr, ssim))
-                else:
-                    img_path = os.path.join(
-                        results_dir, '{}_{}_img_{}.png'.format(name, env, data_idx))
+                img_path = os.path.join(
+                    results_dir, env, name, 'img_{}.png'.format(data_idx))
                 im.save(img_path)
                 
-            save_array(sr_left[..., :3].astype('uint8'), 'sr_left')
-            save_array(sr_right[..., :3].astype('uint8'), 'sr_right')
+            save_array(sr_left[..., :3].astype('uint8'), 'left')
+            save_array(sr_right[..., :3].astype('uint8'), 'right')
             if cfg.save_hr:
                 save_array(HR_left[..., :3].astype('uint8'), 'hr_left')
                 save_array(HR_right[..., :3].astype('uint8'), 'hr_right')
@@ -144,15 +140,37 @@ def test(cfg):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, help='Path of the config file')
-    parser.add_argument('--data_dir', type=str, default='',
-                        help='Path of the dataset')
-    parser.add_argument('--checkpoints_dir', type=str,
-                        default='', help='Path of the dataset')
-    parser.add_argument('--fast_test', default=False, action='store_true')
+    option = 'generate_vid'
+    option = 'generate_frames'
+    if option == 'generate_frames':
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--cfg', type=str, help='Path of the config file')
+        parser.add_argument('--data_dir', type=str, default='',
+                            help='Path of the dataset')
+        parser.add_argument('--checkpoints_dir', type=str,
+                            default='', help='Path of the dataset')
+        parser.add_argument('--fast_test', default=False, action='store_true')
 
-    args = parser.parse_args()
-    cfg = cfg_parser(args)
-    test(cfg)
-    print('Finished!')
+        args = parser.parse_args()
+        cfg = cfg_parser(args)
+        test(cfg)
+        print('Finished!')
+    else:    
+
+        image_folder = 'C:/Users/hamed/Desktop/PhD_proj/StereoSR/checkpoints/ETSSR/results_frames'
+        video_name = 'video.mp4'
+
+        images = [img for img in os.listdir(image_folder) if img.endswith(".png")]
+        images_indx = np.argsort([int(img.split('_')[4].split('.')[0]) for img in images])
+        frame = cv2.imread(os.path.join(image_folder, images[0]))
+        height, width, layers = frame.shape
+        fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
+        video = cv2.VideoWriter(os.path.join(image_folder,video_name), fourcc, 3, (width,height))
+
+        for ind in images_indx:
+            video.write(cv2.imread(os.path.join(image_folder, images[ind])))
+
+        cv2.destroyAllWindows()
+        video.release()
+
+    
