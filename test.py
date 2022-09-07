@@ -153,7 +153,7 @@ def test(cfg):
                                     psnr_left_list, psnr_right_list, ssim_left_list, ssim_right_list = calc_metrics(sr_left_patches[i], sr_right_patches[i], hr_left_patches[i], hr_right_patches[i], psnr_left_list, psnr_right_list, ssim_left_list, ssim_right_list)
 
                             sr_left, sr_right = unify_patches(sr_left_patches, n_h, n_w), unify_patches(sr_right_patches, n_h, n_w)
-                            sr_left, sr_right = sr_left[:cfg.scale_factor * cfg.input_resolution[0] * cfg.sample_ratio, :cfg.scale_factor * cfg.input_resolution[1] * cfg.sample_ratio], sr_right[:cfg.scale_factor * cfg.input_resolution[0] * cfg.sample_ratio, :cfg.scale_factor * cfg.input_resolution[1] * cfg.sample_ratio]
+                            sr_left, sr_right = sr_left[:cfg.scale_factor * h, :cfg.scale_factor * w], sr_right[:cfg.scale_factor * h, :cfg.scale_factor * w]
                         else:
                             dst_shape = (LR_left.shape[1] * cfg.scale_factor, LR_left.shape[0] * cfg.scale_factor)
                             sr_left, sr_right = cv2.resize(LR_left[..., :3].astype('uint8'), dst_shape, interpolation=cv2.INTER_CUBIC), cv2.resize(LR_right[..., :3].astype('uint8'), dst_shape, interpolation=cv2.INTER_CUBIC)
