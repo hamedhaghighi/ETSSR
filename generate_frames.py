@@ -74,8 +74,12 @@ def test(cfg):
     ## Reading dataset  ########################################################################
     root_dir = cfg.data_dir
     results_dir = os.path.join(cfg.checkpoints_dir, 'results_frames')
-    os.makedirs(results_dir, exist_ok=True)
-    env = 'Town01'
+    env = cfg.map
+    os.makedirs(os.path.join(results_dir, env, 'right'), exist_ok=True)
+    os.makedirs(os.path.join(results_dir, env, 'left'), exist_ok=True)
+    os.makedirs(os.path.join(results_dir, env, 'hr_right'), exist_ok=True)
+    os.makedirs(os.path.join(results_dir, env, 'hr_left'), exist_ok=True)
+
     with torch.no_grad():
         cfg.data_dir = os.path.join(root_dir, env)
         total_dataset = dataset.DataSetLoader(cfg, to_tensor=False)
@@ -126,8 +130,7 @@ def test(cfg):
 
             def save_array(array, name, psnr=None, ssim=None):
                 im = Image.fromarray(array)
-                img_path = os.path.join(
-                    results_dir, env, name, 'img_{}.png'.format(data_idx))
+                img_path = os.path.join(results_dir, env, name, 'img_{}.png'.format(data_idx))
                 im.save(img_path)
                 
             save_array(sr_left[..., :3].astype('uint8'), 'left')
@@ -141,7 +144,7 @@ def test(cfg):
 
 if __name__ == '__main__':
     option = 'generate_vid'
-    option = 'generate_frames'
+    # option = 'generate_frames'
     if option == 'generate_frames':
         parser = argparse.ArgumentParser()
         parser.add_argument('--cfg', type=str, help='Path of the config file')
@@ -156,12 +159,17 @@ if __name__ == '__main__':
         test(cfg)
         print('Finished!')
     else:    
-
-        image_folder = 'C:/Users/hamed/Desktop/PhD_proj/StereoSR/checkpoints/ETSSR/results_frames'
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--data_dir', type=str, default='',
+                            help='Path of the dataset')
+        cfg = parser.parse_args()
+        # image_folder = 'C:/Users/hamed/Desktop/PhD_proj/StereoSR/checkpoints/ETSSR/results_frames'
+        image_folder = cfg.data_dir
         video_name = 'video.mp4'
 
         images = [img for img in os.listdir(image_folder) if img.endswith(".png")]
-        images_indx = np.argsort([int(img.split('_')[4].split('.')[0]) for img in images])
+        # images_indx = np.argsort([int(img.split('_')[4].split('.')[0]) for img in images])
+        images_indx = np.argsort([int(img.split('_')[1].split('.')[0]) for img in images])
         frame = cv2.imread(os.path.join(image_folder, images[0]))
         height, width, layers = frame.shape
         fourcc = cv2.VideoWriter_fourcc('m', 'p', '4', 'v')
