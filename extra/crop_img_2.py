@@ -49,7 +49,7 @@ def crop_and_save_images(dir, search_name, left, top, right, bottom , view):
 
 def copy_from_checkpoints_to_all_results(search_name, dir, exp_names, dst_name=None):
     
-    dst_dir = os.path.join(dir, 'all_results/' +  search_name) if dst_name is None else os.path.join(dir, 'all_results/' +  dst_name)
+    dst_dir = os.path.join(dir, 'all_results_2/' +  search_name) if dst_name is None else os.path.join(dir, 'all_results_2/' +  dst_name)
     os.makedirs( dst_dir, exist_ok=True) 
     for exp_name in exp_names:
         if 'Bicubic' in exp_name:
@@ -144,7 +144,7 @@ def plot_crop_images(dir, n, exp_names, im):
                         exp_name = img_filename.split('_')[-1][:-4]
                         title = '{:.2f}'.format((psnr + psnr_list[i - n])/2) + ', ' + '{:.3f}'.format((ssim + ssim_list[i - n]) / 2) if exp_name!= 'HR' else ''
                         # plt.title(exp_name + '\n' + title, y =-0.01)
-                        axs[i].set_xlabel(exp_name + '\n' + title, fontsize=f_size)
+                        axs[i].set_xlabel(exp_name if exp_name!='Bicubic' else 'LR', fontsize=f_size)
                     # plt.axis('off')
                     img_array = plt.imread(os.path.join(dir, img_filename))
                     axs[i].imshow(img_array)
@@ -156,7 +156,7 @@ def plot_crop_images(dir, n, exp_names, im):
 if __name__ == '__main__':
     option = 'plot_crop_images'
     # option = 'plot'
-    total_filename = 'Town01_img_29'
+    total_filename = 'Town11_img_47'
     # option = 'plot'
     if 'plot' in option:
         filename = 'left_' + total_filename
@@ -170,15 +170,15 @@ if __name__ == '__main__':
             dir = '../checkpoints/'
             copy_from_checkpoints_to_all_results(filename, dir, exp_names)
             copy_from_checkpoints_to_all_results(filename_2, dir, exp_names, filename)
-            dir = '../checkpoints/all_results/'
+            dir = '../checkpoints/all_results_2/'
             
             crop_imgs_in_a_folder(dir, filename, left, top, right, bottom, 'left')
             crop_imgs_in_a_folder(dir, filename, left_1, top_1, left_1 + (right - left), top_1 + (bottom - top), 'right')
 
-        dir = '../checkpoints/all_results/'
+        dir = '../checkpoints/all_results_2/'
         all_results_img_dir = os.path.join(dir, filename)
         # exp_names = ['Bicubic', 'VDSR', 'EDSR', 'RCAN', 'RDN', 'StereoSR', 'PASSRnet','iPASSR','SSRDEFNet','ETSSR','HR']
-        exp_names = ['Bicubic', 'VDSR','RCAN','EDSR','RDN', 'StereoSR', 'PASSRnet','SSRDEFNet','iPASSR','ETSSR','HR']
+        exp_names = ['Bicubic','ETSSR','HR']
         # for fn in os.listdir(all_results_img_dir):
         #     if 'Cropped' not in fn and 'HR' in fn and 'left' in fn:
         #         im = plt.imread(os.path.join(all_results_img_dir, fn))

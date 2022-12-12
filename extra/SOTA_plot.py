@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import matplotlib
-
+plt.rcParams["font.family"] = "Times New Roman"
 
 all_flops = [4.917,7.020, 10.168, 18.282, 8.461, 1.745, 1.102, 5.004, 0.362, 0.533, 0.703]
 all_psnrs = [37.49, 38.08, 38.32, 38.09, 36.18, 37.90, 38.12, 36.62, 38.21, 38.45, 38.55]
@@ -12,7 +12,7 @@ plt.rcParams.update({'font.family':'sans-serif'})
 plt.scatter(all_flops, all_psnrs, all_params, colors, "o")
 
 for i, txt in enumerate(labels):
-    plt.annotate(txt, (all_flops[i], all_psnrs[i]), fontsize = 7, weight='bold')
+    plt.annotate(txt, (all_flops[i], all_psnrs[i]), fontsize = 9)
 
 x_tick = []
 x_tick.extend(list(range(0, 25, 5)))
@@ -24,7 +24,7 @@ y_tick = list(sorted(y_tick))
 # plt.title('Quantitative Compari')
 plt.xticks(x_tick)
 plt.yticks(y_tick)
-plt.xlim([0, 25])
+plt.xlim([0, 21])
 plt.ylim([36, 39])
 plt.xlabel('FLOPs (T)')
 plt.ylabel('PSNR (dB)')
