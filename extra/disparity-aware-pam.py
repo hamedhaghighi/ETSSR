@@ -4,8 +4,22 @@ class PAM(nn.Module):
         self.device = device
         self.w_size = w_size
         self.channel = channels
-        self.bq = nn.Conv2d(4*channels, channels, 1, 1, 0, groups=4, bias=True)
-        self.bs = nn.Conv2d(4*channels, channels, 1, 1, 0, groups=4, bias=True)
+        self.bq = nn.Conv2d(
+            4 * channels,
+            channels,
+            1,
+            1,
+            0,
+            groups=4,
+            bias=True)
+        self.bs = nn.Conv2d(
+            4 * channels,
+            channels,
+            1,
+            1,
+            0,
+            groups=4,
+            bias=True)
         self.softmax = nn.Softmax(-1)
         self.rb = ResB(4 * channels)
         self.bn = nn.BatchNorm2d(4 * channels)
@@ -14,20 +28,41 @@ class PAM(nn.Module):
     def patchify(self, tensor, b, c, h, w):
         w_size = self.w_size
         # B C H//w_size W//wsize wsize wsize
-        return tensor.reshape(b, c, h // w_size, w_size, w // w_size, w_size).permute(0, 2, 4, 3, 5, 1)
+        return tensor.reshape(b, c, h // w_size, w_size,
+                              w // w_size, w_size).permute(0, 2, 4, 3, 5, 1)
 
     def unpatchify(self, tensor, b, c, h, w):
         w_size = self.w_size
-        return tensor.reshape(b, h // w_size, w // w_size, w_size, w_size, c).permute(0, 5, 1, 3, 2, 4).reshape(b, c, h, w)
+        return tensor.reshape(
+            b,
+            h //
+            w_size,
+            w //
+            w_size,
+            w_size,
+            w_size,
+            c).permute(
+            0,
+            5,
+            1,
+            3,
+            2,
+            4).reshape(
+            b,
+            c,
+            h,
+            w)
 
-    def __call__(self, x_left, x_right, catfea_left, catfea_right, d_left, d_right):
+    def __call__(self, x_left, x_right, catfea_left,
+                 catfea_right, d_left, d_right):
         # Building matching indexes and patch around that using disparity
         w_size = self.w_size
         b, c, h, w = x_left.shape
         coords_b, coords_h, coords_w = torch.meshgrid(
             [torch.arange(b), torch.arange(h), torch.arange(w)], indexing='ij')  # H, W
         # m_left = ((coords_w.to(self.device).float() + 0.5 - d_left ) >= 0).unsqueeze(1).float() # B , H , W
-        # m_right = ((coords_w.to(self.device).float() + 0.5 + d_right.long()) <= w - 1).unsqueeze(1).float() # B , H , W
+        # m_right = ((coords_w.to(self.device).float() + 0.5 + d_right.long())
+        # <= w - 1).unsqueeze(1).float() # B , H , W
         r2l_w = torch.clamp(coords_w.float() + 0.5 -
                             d_left.cpu(), min=0).long()
         l2r_w = torch.clamp(coords_w.float() + 0.5 +
@@ -45,23 +80,39 @@ class PAM(nn.Module):
         Q, K = self.patchify(Q, b, c, h, w), self.patchify(K, b, c, h, w)
         Q, K = Q - Q.mean((4, 5))[..., None, None], K - \
             K.mean((4, 5))[..., None, None]
-        score_r2l = Q.reshape(-1, w_size * w_size, c) @ K_selected.permute(0,
-                                                                           1, 2, 5, 3, 4).reshape(-1, c, w_size * w_size)
-        score_l2r = K.reshape(-1, w_size * w_size, c) @ Q_selected.permute(0,
-                                                                           1, 2, 5, 3, 4).reshape(-1, c, w_size * w_size)
+        score_r2l = Q.reshape(-1,
+                              w_size * w_size,
+                              c) @ K_selected.permute(0,
+                                                      1,
+                                                      2,
+                                                      5,
+                                                      3,
+                                                      4).reshape(-1,
+                                                                 c,
+                                                                 w_size * w_size)
+        score_l2r = K.reshape(-1,
+                              w_size * w_size,
+                              c) @ Q_selected.permute(0,
+                                                      1,
+                                                      2,
+                                                      5,
+                                                      3,
+                                                      4).reshape(-1,
+                                                                 c,
+                                                                 w_size * w_size)
         # (B*H) * Wl * Wr
         # B*C*H//*W//, wsize * wsize, wsize * wsize
         Mr2l = self.softmax(score_r2l)
         Ml2r = self.softmax(score_l2r)
-        ## masks
+        # masks
         Mr2l_relaxed = M_Relax(Mr2l, num_pixels=2)
         Ml2r_relaxed = M_Relax(Ml2r, num_pixels=2)
-        V_left = Mr2l_relaxed.reshape(-1, 1, w_size*w_size) @ Ml2r.permute(
-            0, 2, 1).reshape(-1, w_size*w_size, 1)
+        V_left = Mr2l_relaxed.reshape(-1, 1, w_size * w_size) @ Ml2r.permute(
+            0, 2, 1).reshape(-1, w_size * w_size, 1)
         V_left = self.unpatchify(
             V_left.squeeze().reshape(-1, w_size, w_size, 1), b, 1, h, w).detach()
-        V_right = Ml2r_relaxed.reshape(-1, 1, w_size*w_size) @ Mr2l.permute(
-            0, 2, 1).reshape(-1, w_size*w_size, 1)
+        V_right = Ml2r_relaxed.reshape(-1, 1, w_size * w_size) @ Mr2l.permute(
+            0, 2, 1).reshape(-1, w_size * w_size, 1)
         V_right = self.unpatchify(
             V_right.squeeze().reshape(-1, w_size, w_size, 1), b, 1, h, w).detach()
         V_left = torch.tanh(5 * V_left)

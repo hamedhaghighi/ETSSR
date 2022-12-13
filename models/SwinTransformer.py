@@ -3,16 +3,17 @@
 # Originally Written by Ze Liu, Modified by Jingyun Liang.
 # -----------------------------------------------------------------------------------
 
-import math
+
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
-from utils import disparity_alignment
-    
+
+
+
 class Mlp(nn.Module):
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
+    def __init__(self, in_features, hidden_features=None,
+                 out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -33,7 +34,15 @@ class Mlp(nn.Module):
 def window_partition(x, window_size):
 
     B, H, W, C = x.shape
-    x = x.view(B, H // window_size, window_size, W // window_size, window_size, C)
+    x = x.view(
+        B,
+        H //
+        window_size,
+        window_size,
+        W //
+        window_size,
+        window_size,
+        C)
     windows = x.permute(0, 1, 3, 2, 4, 5).contiguous(
     ).view(-1, window_size, window_size, C)
     return windows
@@ -49,7 +58,8 @@ def window_reverse(windows, window_size, H, W):
 
 
 class WindowAttention(nn.Module):
-    def __init__(self, dim, window_size, num_heads, qkv_bias=True, proj_drop=0.):
+    def __init__(self, dim, window_size, num_heads,
+                 qkv_bias=True, proj_drop=0.):
 
         super().__init__()
         self.dim = dim
@@ -59,20 +69,27 @@ class WindowAttention(nn.Module):
         self.scale = head_dim ** -0.5
 
         # define a parameter table of relative position bias
-        self.relative_position_bias_table = nn.Parameter(torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
+        self.relative_position_bias_table = nn.Parameter(torch.zeros(
+            (2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
 
-        # get pair-wise relative position index for each token inside the window
+        # get pair-wise relative position index for each token inside the
+        # window
         coords_h = torch.arange(self.window_size[0])
         coords_w = torch.arange(self.window_size[1])
         coords = torch.stack(torch.meshgrid([coords_h, coords_w]))  # 2, Wh, Ww
         coords_flatten = torch.flatten(coords, 1)  # 2, Wh*Ww
-        relative_coords = coords_flatten[:, :, None] - coords_flatten[:, None, :]  # 2, Wh*Ww, Wh*Ww
-        relative_coords = relative_coords.permute(1, 2, 0).contiguous()  # Wh*Ww, Wh*Ww, 2
-        relative_coords[:, :, 0] += self.window_size[0] - 1  # shift to start from 0
+        relative_coords = coords_flatten[:, :, None] - \
+            coords_flatten[:, None, :]  # 2, Wh*Ww, Wh*Ww
+        relative_coords = relative_coords.permute(
+            1, 2, 0).contiguous()  # Wh*Ww, Wh*Ww, 2
+        relative_coords[:, :, 0] += self.window_size[0] - \
+            1  # shift to start from 0
         relative_coords[:, :, 1] += self.window_size[1] - 1
         relative_coords[:, :, 0] *= 2 * self.window_size[1] - 1
         relative_position_index = relative_coords.sum(-1)  # Wh*Ww, Wh*Ww
-        self.register_buffer("relative_position_index", relative_position_index)
+        self.register_buffer(
+            "relative_position_index",
+            relative_position_index)
 
         self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
         self.proj = nn.Linear(dim, dim)
@@ -89,25 +106,38 @@ class WindowAttention(nn.Module):
             mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
         """
         B_, N, C = x.shape
-        qkv = self.qkv(x).reshape(B_, N, 3, self.num_heads, C //self.num_heads).permute(2, 0, 3, 1, 4)
+        qkv = self.qkv(x).reshape(
+            B_,
+            N,
+            3,
+            self.num_heads,
+            C //
+            self.num_heads).permute(
+            2,
+            0,
+            3,
+            1,
+            4)
         # make torchscript happy (cannot use tensor as tuple)
         q, k, v = qkv[0], qkv[1], qkv[2]
 
         q = q * self.scale
         attn = (q @ k.transpose(-2, -1))
 
-        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
-        relative_position_bias = relative_position_bias.permute(2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
+        relative_position_bias = self.relative_position_bias_table[self.relative_position_index.view(-1)].view(
+            self.window_size[0] * self.window_size[1], self.window_size[0] * self.window_size[1], -1)  # Wh*Ww,Wh*Ww,nH
+        relative_position_bias = relative_position_bias.permute(
+            2, 0, 1).contiguous()  # nH, Wh*Ww, Wh*Ww
         attn = attn + relative_position_bias.unsqueeze(0)
 
         if mask is not None:
             nW = mask.shape[0]
-            attn = attn.view(B_ // nW, nW, self.num_heads, N, N) + mask.unsqueeze(1).unsqueeze(0)
+            attn = attn.view(B_ // nW, nW, self.num_heads, N,
+                             N) + mask.unsqueeze(1).unsqueeze(0)
             attn = attn.view(-1, self.num_heads, N, N)
             attn = self.softmax(attn)
         else:
             attn = self.softmax(attn)
-
 
         x = (attn @ v).transpose(1, 2).reshape(B_, N, C)
         x = self.proj(x)
@@ -133,9 +163,19 @@ class WindowAttention(nn.Module):
 
 class SwinAttnBlock(nn.Module):
 
-    def __init__(self, dim, input_resolution, num_heads, window_size=7, shift_size=0,
-                 mlp_ratio=4., qkv_bias=True, drop=0., drop_path=0.,
-                 act_layer=nn.GELU, norm_layer=nn.LayerNorm):
+    def __init__(
+            self,
+            dim,
+            input_resolution,
+            num_heads,
+            window_size=7,
+            shift_size=0,
+            mlp_ratio=4.,
+            qkv_bias=True,
+            drop=0.,
+            drop_path=0.,
+            act_layer=nn.GELU,
+            norm_layer=nn.LayerNorm):
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
@@ -144,18 +184,30 @@ class SwinAttnBlock(nn.Module):
         self.shift_size = shift_size
         self.mlp_ratio = mlp_ratio
         if min(self.input_resolution) <= self.window_size:
-            # if window size is larger than input resolution, we don't partition windows
+            # if window size is larger than input resolution, we don't
+            # partition windows
             self.shift_size = 0
             self.window_size = min(self.input_resolution)
         assert 0 <= self.shift_size < self.window_size, "shift_size must in 0-window_size"
 
         self.norm1 = norm_layer(dim)
-        self.attn = WindowAttention(dim, window_size=to_2tuple(self.window_size), num_heads=num_heads, qkv_bias=qkv_bias, proj_drop=drop)
+        self.attn = WindowAttention(
+            dim,
+            window_size=to_2tuple(
+                self.window_size),
+            num_heads=num_heads,
+            qkv_bias=qkv_bias,
+            proj_drop=drop)
 
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.drop_path = DropPath(
+            drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+        self.mlp = Mlp(
+            in_features=dim,
+            hidden_features=mlp_hidden_dim,
+            act_layer=act_layer,
+            drop=drop)
 
         if self.shift_size > 0:
             attn_mask = self.calculate_mask(self.input_resolution)
@@ -182,9 +234,11 @@ class SwinAttnBlock(nn.Module):
 
         # nW, window_size, window_size, 1
         mask_windows = window_partition(img_mask, self.window_size)
-        mask_windows = mask_windows.view(-1,self.window_size * self.window_size)
+        mask_windows = mask_windows.view(-1,
+                                         self.window_size * self.window_size)
         attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
-        attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
+        attn_mask = attn_mask.masked_fill(
+            attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
 
         return attn_mask
 
@@ -208,22 +262,32 @@ class SwinAttnBlock(nn.Module):
         x_windows = window_partition(shifted_x, self.window_size)
         # nW*B, window_size*window_size, C
         x_windows = x_windows.view(-1, self.window_size * self.window_size, C)
-        # W-MSA/SW-MSA (to be compatible for testing on images whose shapes are the multiple of window size
+        # W-MSA/SW-MSA (to be compatible for testing on images whose shapes are
+        # the multiple of window size
         if self.input_resolution == x_size:
             # nW*B, window_size*window_size, C
             attn_windows = self.attn(x_windows, mask=self.attn_mask)
         else:
-            attn_windows = self.attn(x_windows, mask=self.calculate_mask(x_size).to(x.device))
-
+            attn_windows = self.attn(
+                x_windows,
+                mask=self.calculate_mask(x_size).to(
+                    x.device))
 
         # merge windows
 
-        attn_windows = attn_windows.view(-1, self.window_size, self.window_size, C)
-        shifted_x = window_reverse(attn_windows, self.window_size, H, W)  # B H' W' C
+        attn_windows = attn_windows.view(-1,
+                                         self.window_size,
+                                         self.window_size,
+                                         C)
+        shifted_x = window_reverse(
+            attn_windows, self.window_size, H, W)  # B H' W' C
 
         # reverse cyclic shift
         if self.shift_size > 0:
-            x = torch.roll(shifted_x, shifts=(self.shift_size, self.shift_size), dims=(1, 2))
+            x = torch.roll(
+                shifted_x, shifts=(
+                    self.shift_size, self.shift_size), dims=(
+                    1, 2))
         else:
             x = shifted_x
         x = x.view(B, H * W, C)
@@ -239,7 +303,7 @@ class SwinAttnBlock(nn.Module):
         return f"dim={self.dim}, input_resolution={self.input_resolution}, num_heads={self.num_heads}, " \
                f"window_size={self.window_size}, shift_size={self.shift_size}, mlp_ratio={self.mlp_ratio}"
 
-    def flops(self, H , W):
+    def flops(self, H, W):
         flops = 0
         # norm1
         flops += self.dim * H * W
@@ -259,21 +323,21 @@ class RSTB(nn.Module):
                  mlp_ratio=4., qkv_bias=True, drop=0.,
                  drop_path=0., norm_layer=nn.LayerNorm, use_checkpoint=False):
         super(RSTB, self).__init__()
-        
+
         self.use_checkpoint = use_checkpoint
         self.dim = dim
         self.input_resolution = input_resolution
         self.blocks = nn.ModuleList([
             SwinAttnBlock(dim=dim, input_resolution=input_resolution,
-                                 num_heads=num_heads, window_size=window_size,
-                                 shift_size=0 if (
-                                     i % 2 == 0) else window_size // 2,
-                                 mlp_ratio=mlp_ratio,
-                                 qkv_bias=qkv_bias,
-                                 drop=drop,
-                                 drop_path=drop_path[i] if isinstance(
-                                     drop_path, list) else drop_path,
-                                 norm_layer=norm_layer)
+                          num_heads=num_heads, window_size=window_size,
+                          shift_size=0 if (
+                              i % 2 == 0) else window_size // 2,
+                          mlp_ratio=mlp_ratio,
+                          qkv_bias=qkv_bias,
+                          drop=drop,
+                          drop_path=drop_path[i] if isinstance(
+                              drop_path, list) else drop_path,
+                          norm_layer=norm_layer)
             for i in range(depth)])
 
         self.conv = nn.Conv2d(dim, dim, 3, 1, 1)
@@ -290,7 +354,7 @@ class RSTB(nn.Module):
         x = x.flatten(2).transpose(1, 2)
         return x + out
 
-    def flops(self, H , W):
+    def flops(self, H, W):
         flops = 0
         for block in self.blocks:
             flops += block.flops(H, W)
@@ -299,21 +363,37 @@ class RSTB(nn.Module):
         return flops
 
 
-
 class SwinAttn(nn.Module):
 
-    def __init__(self, img_size=64, in_chans=3,
-                 embed_dim=96, depths=[6, 6, 6, 6], num_heads=[6, 6, 6, 6],
-                 window_size=7, mlp_ratio=4., qkv_bias=True, drop_path_rate=0.1,
-                 norm_layer=nn.LayerNorm,
-                 use_checkpoint=False, condition=False):
+    def __init__(
+            self,
+            img_size=64,
+            in_chans=3,
+            embed_dim=96,
+            depths=[
+                6,
+                6,
+                6,
+                6],
+            num_heads=[
+                6,
+                6,
+                6,
+                6],
+        window_size=7,
+        mlp_ratio=4.,
+        qkv_bias=True,
+        drop_path_rate=0.1,
+        norm_layer=nn.LayerNorm,
+        use_checkpoint=False,
+            condition=False):
         super(SwinAttn, self).__init__()
         if in_chans == 3:
             rgb_mean = (0.4488, 0.4371, 0.4040)
             self.mean = torch.Tensor(rgb_mean).view(1, 3, 1, 1)
         else:
             self.mean = torch.zeros(1, 1, 1, 1)
-            
+
         self.window_size = window_size
 
         self.num_layers = len(depths)
@@ -326,7 +406,11 @@ class SwinAttn(nn.Module):
         self.pre_norm = norm_layer(embed_dim)
 
         # stochastic depth
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]  # stochastic depth decay rule
+        dpr = [
+            x.item() for x in torch.linspace(
+                0,
+                drop_path_rate,
+                sum(depths))]  # stochastic depth decay rule
 
         # build Residual Swin Transformer blocks (RSTB)
         self.layers = nn.ModuleList()
@@ -346,8 +430,6 @@ class SwinAttn(nn.Module):
                          )
             self.layers.append(layer)
         self.norm = norm_layer(self.num_features)
-       
-
 
     def forward(self, x, condition=None):
 
@@ -359,21 +441,24 @@ class SwinAttn(nn.Module):
         x = x.transpose(1, 2).view(B, C, x_size[0], x_size[1])
         return x
 
-    def flops(self, H , W):
+    def flops(self, H, W):
         flops = 0
         for layer in self.layers:
             flops += layer.flops(H, W)
         return flops
 
-    
 
 if __name__ == '__main__':
     upscale = 2
     window_size = 8
     height = (60 // upscale // window_size + 1) * window_size
     width = (180 // upscale // window_size + 1) * window_size
-    model = SwinAttn(upscale=2, img_size=(height, width), window_size=window_size, depths=[6, 6, 6, 6], embed_dim=60, num_heads=[6, 6, 6, 6], mlp_ratio=2)
-    print('Input Height:', height, 'Width: ',width)
+    model = SwinAttn(
+        upscale=2, img_size=(
+            height, width), window_size=window_size, depths=[
+            6, 6, 6, 6], embed_dim=60, num_heads=[
+                6, 6, 6, 6], mlp_ratio=2)
+    print('Input Height:', height, 'Width: ', width)
     # print ('FLOPS: ', model.flops() / 1e9)
     x = torch.randn((1, 60, height, width))
     x = model(x)

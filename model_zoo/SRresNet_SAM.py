@@ -1,21 +1,33 @@
+import math
+
 import numpy as np
-from skimage import morphology
 import torch
 import torch.nn as nn
+from skimage import morphology
+
 from models.BaseModel import BaseModel
-from torchvision import models
-import torch.utils.model_zoo as model_zoo
-import math
 
 
 class _Residual_Block(nn.Module):
     def __init__(self):
         super(_Residual_Block, self).__init__()
 
-        self.conv1 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv1 = nn.Conv2d(
+            in_channels=64,
+            out_channels=64,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=False)
         self.in1 = nn.InstanceNorm2d(64, affine=True)
         self.relu = nn.LeakyReLU(0.2, inplace=True)
-        self.conv2 = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv2 = nn.Conv2d(
+            in_channels=64,
+            out_channels=64,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=False)
         self.in2 = nn.InstanceNorm2d(64, affine=True)
 
     def forward(self, x):
@@ -27,7 +39,8 @@ class _Residual_Block(nn.Module):
 
 
 class _NetG_SAM(BaseModel):
-    def __init__(self, upscale_factor, n_blocks=16, inchannels=3, nfeats=64, outchannels=3):
+    def __init__(self, upscale_factor, n_blocks=16,
+                 inchannels=3, nfeats=64, outchannels=3):
         super(_NetG_SAM, self).__init__()
 
         # self.loss_names.append('content')
@@ -40,12 +53,24 @@ class _NetG_SAM(BaseModel):
         if isinstance(n_intervals, int):
             self.nbody = self.n_blocks // n_intervals
 
-        self.conv_input = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=9, stride=1, padding=4, bias=False)
+        self.conv_input = nn.Conv2d(
+            in_channels=3,
+            out_channels=64,
+            kernel_size=9,
+            stride=1,
+            padding=4,
+            bias=False)
         self.relu = nn.LeakyReLU(0.2, inplace=True)
 
         self.residual = self.make_layer(_Residual_Block, 16)
 
-        self.conv_mid = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv_mid = nn.Conv2d(
+            in_channels=64,
+            out_channels=64,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=False)
         self.bn_mid = nn.InstanceNorm2d(64, affine=True)
 
         self.upscale4x = nn.Sequential(
@@ -59,8 +84,13 @@ class _NetG_SAM(BaseModel):
             nn.LeakyReLU(0.2, inplace=True),
         )
 
-        self.conv_output = nn.Conv2d(in_channels=64, out_channels=3, kernel_size=9, stride=1, padding=4, bias=False)
-
+        self.conv_output = nn.Conv2d(
+            in_channels=64,
+            out_channels=3,
+            kernel_size=9,
+            stride=1,
+            padding=4,
+            bias=False)
 
         sam_layer = []
         for _ in range(self.nbody):
@@ -73,7 +103,7 @@ class _NetG_SAM(BaseModel):
                 m.weight.data.normal_(0, math.sqrt(2. / n))
                 if m.bias is not None:
                     m.bias.data.zero_()
-                    
+
         # print('===> Loading VGG model')
         # netVGG = models.vgg19()
         # netVGG.load_state_dict(model_zoo.load_url('https://download.pytorch.org/models/vgg19-dcbb9e9d.pth'))
@@ -88,7 +118,6 @@ class _NetG_SAM(BaseModel):
         #         return out
 
         # self.netContent = _content_model().cuda()
-        
 
     def make_layer(self, block, num_of_layer):
         layers = []
@@ -96,72 +125,115 @@ class _NetG_SAM(BaseModel):
             layers.append(block())
         return nn.Sequential(*layers)
 
-
     def feed_in(self, left, right):
-        buffer_left, buffer_right = self.relu(self.conv_input(left[:, :3])), self.relu(self.conv_input(right[:, :3]))
+        buffer_left, buffer_right = self.relu(self.conv_input(
+            left[:, :3])), self.relu(self.conv_input(right[:, :3]))
         residual_left, residual_right = buffer_left, buffer_right
         layers = 0
         image_map = []
         image_mask = []
         for i in range(self.n_blocks):
-            buffer_left, buffer_right = self.residual[i](buffer_left), self.residual[i](buffer_right)
+            buffer_left, buffer_right = self.residual[i](
+                buffer_left), self.residual[i](buffer_right)
             if isinstance(self.intervals, list):
                 if (i + 1) in self.intervals:
-                    buffer_left, buffer_right, map, mask = self.sam_layer[layers](buffer_left, buffer_right)
+                    buffer_left, buffer_right, map, mask = self.sam_layer[layers](
+                        buffer_left, buffer_right)
                     layers = layers + 1
                     image_map.append(map)
                     image_mask.append(mask)
             if isinstance(self.intervals, int):
                 if (i + 1) % self.intervals == 0:
-                    buffer_left, buffer_right, map, mask = self.sam_layer[layers](buffer_left, buffer_right)
+                    buffer_left, buffer_right, map, mask = self.sam_layer[layers](
+                        buffer_left, buffer_right)
                     layers = layers + 1
                     image_map.append(map)
                     image_mask.append(mask)
-        buffer_left, buffer_right = self.bn_mid(self.conv_mid(buffer_left)), self.bn_mid(self.conv_mid(buffer_right))
-        buffer_left, buffer_right = torch.add(buffer_left, residual_left), torch.add(buffer_right, residual_right)
-        buffer_left, buffer_right = self.upscale4x(buffer_left), self.upscale4x(buffer_right)
-        out_left, out_right = self.conv_output(buffer_left), self.conv_output(buffer_right)
-        return  out_left, out_right, image_map, image_mask
+        buffer_left, buffer_right = self.bn_mid(
+            self.conv_mid(buffer_left)), self.bn_mid(
+            self.conv_mid(buffer_right))
+        buffer_left, buffer_right = torch.add(
+            buffer_left, residual_left), torch.add(
+            buffer_right, residual_right)
+        buffer_left, buffer_right = self.upscale4x(
+            buffer_left), self.upscale4x(buffer_right)
+        out_left, out_right = self.conv_output(
+            buffer_left), self.conv_output(buffer_right)
+        return out_left, out_right, image_map, image_mask
 
     def forward(self, left, right):
         SR_left, _, image_map_left, image_mask_left = self.feed_in(left, right)
-        SR_right, _,  image_map_right, image_mask_right = self.feed_in(right, left)
+        SR_right, _, image_map_right, image_mask_right = self.feed_in(
+            right, left)
         return SR_left, image_map_left, image_mask_left, SR_right, image_map_right, image_mask_right
 
-
-    def calc_loss_photo(self, image_map, image_mask, criterion, input_l, input_r):
+    def calc_loss_photo(self, image_map, image_mask,
+                        criterion, input_l, input_r):
         b, c, h, w = input_l.shape
         loss_photo = 0
         for i in range(len(image_map)):
             (M_right_to_left, M_left_to_right) = image_map[i]
             (V_right_to_left, V_left_to_right) = image_mask[i]
-            LR_right_warped = torch.bmm(M_right_to_left.contiguous().view(b * h, w, w),
-                                        input_r.permute(0, 2, 3, 1).contiguous().view(b * h, w, c))
-            LR_right_warped = LR_right_warped.view(b, h, w, c).contiguous().permute(0, 3, 1, 2)
-            LR_left_warped = torch.bmm(M_left_to_right.contiguous().view(b * h, w, w),
-                                       input_l.permute(0, 2, 3, 1).contiguous().view(b * h, w, c))
-            LR_left_warped = LR_left_warped.view(b, h, w, c).contiguous().permute(0, 3, 1, 2)
+            LR_right_warped = torch.bmm(
+                M_right_to_left.contiguous().view(
+                    b * h,
+                    w,
+                    w),
+                input_r.permute(
+                    0,
+                    2,
+                    3,
+                    1).contiguous().view(
+                    b * h,
+                    w,
+                    c))
+            LR_right_warped = LR_right_warped.view(
+                b, h, w, c).contiguous().permute(
+                0, 3, 1, 2)
+            LR_left_warped = torch.bmm(
+                M_left_to_right.contiguous().view(
+                    b * h,
+                    w,
+                    w),
+                input_l.permute(
+                    0,
+                    2,
+                    3,
+                    1).contiguous().view(
+                    b * h,
+                    w,
+                    c))
+            LR_left_warped = LR_left_warped.view(
+                b, h, w, c).contiguous().permute(
+                0, 3, 1, 2)
 
-            loss_photo = loss_photo + criterion(input_l * V_left_to_right, LR_right_warped * V_left_to_right) + \
-                         criterion(input_r * V_right_to_left, LR_left_warped * V_right_to_left)
+            loss_photo = loss_photo + criterion(
+                input_l * V_left_to_right,
+                LR_right_warped * V_left_to_right) + criterion(
+                input_r * V_right_to_left,
+                LR_left_warped * V_right_to_left)
             return loss_photo
 
     def calc_loss(self, LR_left, LR_right, HR_left, HR_right, cfg):
 
         criterion_L1 = torch.nn.L1Loss().to(cfg.device)
-        SR_left, image_map_left, image_mask_left, SR_right, image_map_right, image_mask_right = self.forward(LR_left, LR_right)
+        SR_left, image_map_left, image_mask_left, SR_right, image_map_right, image_mask_right = self.forward(
+            LR_left, LR_right)
         ''' SR Loss '''
-        self.loss_SR = criterion_L1(SR_left, HR_left) + criterion_L1(SR_right, HR_right)
+        self.loss_SR = criterion_L1(
+            SR_left, HR_left) + criterion_L1(SR_right, HR_right)
 
-        self.loss_photo_left = self.calc_loss_photo(image_map_left, image_mask_left, criterion_L1, LR_left, LR_right)
-        self.loss_photo_right = self.calc_loss_photo(image_map_right, image_mask_right, criterion_L1, LR_right, LR_left)
+        self.loss_photo_left = self.calc_loss_photo(
+            image_map_left, image_mask_left, criterion_L1, LR_left, LR_right)
+        self.loss_photo_right = self.calc_loss_photo(
+            image_map_right, image_mask_right, criterion_L1, LR_right, LR_left)
         # with torch.no_grad():
         #     HR_l_content, HR_R_content = self.netContent(HR_left), self.netContent(HR_right)
         #     SR_l_content, SR_R_content = self.netContent(SR_left), self.netContent(SR_right)
 
         # self.loss_content = criterion_L1(HR_l_content, SR_l_content) + criterion_L1(HR_R_content, SR_R_content)
-        self.loss_SR = self.loss_SR + 0.01 * (self.loss_photo_left + self.loss_photo_right)
-
+        self.loss_SR = self.loss_SR + 0.01 * \
+            (self.loss_photo_left + self.loss_photo_right)
 
         # if not is_train:
         #     self.loss_names.extend(['psnr_left', 'ssim_left', 'psnr_right', 'ssim_right'])
@@ -175,7 +247,7 @@ class _NetG_SAM(BaseModel):
         #     self.loss_psnr_right = torch.tensor(np.array(psnr_right).mean())
         #     self.loss_ssim_left = torch.tensor(np.array(ssim_left).mean())
         #     self.loss_ssim_right = torch.tensor(np.array(ssim_right).mean())
-    
+
         return self.loss_SR
 
 
@@ -285,13 +357,13 @@ class SAM(nn.Module):  # stereo attention block
         self.rb = RB(channels)
         self.softmax = nn.Softmax(-1)
         self.bottleneck = nn.Conv2d(
-            channels * 2+1, channels, 1, 1, 0, bias=True)
+            channels * 2 + 1, channels, 1, 1, 0, bias=True)
 
     def forward(self, x_left, x_right):  # B * C * H * W
         b, c, h, w = x_left.shape
         buffer_left = self.rb(x_left)
         buffer_right = self.rb(x_right)
-        ### M_{right_to_left}
+        # M_{right_to_left}
         Q = self.b1(buffer_left).permute(0, 2, 3, 1)  # B * H * W * C
         S = self.b2(buffer_right).permute(0, 2, 1, 3)  # B * H * C * W
         score = torch.bmm(Q.contiguous().view(-1, w, c),
@@ -324,10 +396,9 @@ class SAM(nn.Module):  # stereo attention block
         out_R = self.bottleneck(
             torch.cat((buffer_r, x_right, V_right_to_left), 1))
 
-        return out_L, out_R,\
-            (M_right_to_left.contiguous().view(b, h, w, w), M_left_to_right.contiguous().view(b, h, w, w)),\
-            (V_right_to_left, V_left_to_right)
-
+        return out_L, out_R, (M_right_to_left.contiguous().view(
+            b, h, w, w), M_left_to_right.contiguous().view(
+            b, h, w, w)), (V_right_to_left, V_left_to_right)
 
 
 def morphologic_process(mask):
@@ -341,6 +412,6 @@ def morphologic_process(mask):
         buffer = np.pad(mask_np[idx, 0, :, :], ((3, 3), (3, 3)), 'constant')
         buffer = morphology.binary_closing(buffer, morphology.disk(3))
         mask_np[idx, 0, :, :] = buffer[3:-3, 3:-3]
-    mask_np = 1-mask_np
+    mask_np = 1 - mask_np
     mask_np = mask_np.astype(float)
     return torch.from_numpy(mask_np).float().to(device)

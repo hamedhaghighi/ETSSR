@@ -3,17 +3,17 @@
 # Originally Written by Ze Liu, Modified by Jingyun Liang.
 # -----------------------------------------------------------------------------------
 
-import math
+
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.utils.checkpoint as checkpoint
-from timm.models.layers import DropPath, to_2tuple, trunc_normal_
-from utils import disparity_alignment
+from timm.models.layers import DropPath, to_2tuple
+
 
 
 class Mlp(nn.Module):
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0.):
+    def __init__(self, in_features, hidden_features=None,
+                 out_features=None, act_layer=nn.GELU, drop=0.):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -51,7 +51,8 @@ def window_reverse(windows, window_size, H, W):
 
 
 class WindowAttention(nn.Module):
-    def __init__(self, dim, window_size, num_heads, qkv_bias=True, proj_drop=0.):
+    def __init__(self, dim, window_size, num_heads,
+                 qkv_bias=True, proj_drop=0.):
 
         super().__init__()
         self.dim = dim
@@ -119,9 +120,19 @@ class WindowAttention(nn.Module):
 
 class SwinAttnBlock(nn.Module):
 
-    def __init__(self, dim, input_resolution, num_heads, window_size=7, shift_size=0,
-                 mlp_ratio=4., qkv_bias=True, drop=0., drop_path=0.,
-                 act_layer=nn.GELU, norm_layer=nn.LayerNorm):
+    def __init__(
+            self,
+            dim,
+            input_resolution,
+            num_heads,
+            window_size=7,
+            shift_size=0,
+            mlp_ratio=4.,
+            qkv_bias=True,
+            drop=0.,
+            drop_path=0.,
+            act_layer=nn.GELU,
+            norm_layer=nn.LayerNorm):
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
@@ -130,14 +141,22 @@ class SwinAttnBlock(nn.Module):
         self.shift_size = shift_size
         self.mlp_ratio = mlp_ratio
         if min(self.input_resolution) <= self.window_size:
-            # if window size is larger than input resolution, we don't partition windows
+            # if window size is larger than input resolution, we don't
+            # partition windows
             self.shift_size = 0
             self.window_size = min(self.input_resolution)
         assert 0 <= self.shift_size < self.window_size, "shift_size must in 0-window_size"
 
-        self.attn = WindowAttention(dim, window_size=to_2tuple(self.window_size), num_heads=num_heads, qkv_bias=qkv_bias, proj_drop=drop)
+        self.attn = WindowAttention(
+            dim,
+            window_size=to_2tuple(
+                self.window_size),
+            num_heads=num_heads,
+            qkv_bias=qkv_bias,
+            proj_drop=drop)
 
-        self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+        self.drop_path = DropPath(
+            drop_path) if drop_path > 0. else nn.Identity()
 
         if self.shift_size > 0:
             attn_mask = self.calculate_mask(self.input_resolution)
@@ -164,9 +183,11 @@ class SwinAttnBlock(nn.Module):
 
         # nW, window_size, window_size, 1
         mask_windows = window_partition(img_mask, self.window_size)
-        mask_windows = mask_windows.view(-1, self.window_size * self.window_size)
+        mask_windows = mask_windows.view(-1,
+                                         self.window_size * self.window_size)
         attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
-        attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
+        attn_mask = attn_mask.masked_fill(
+            attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
 
         return attn_mask
 
@@ -189,7 +210,8 @@ class SwinAttnBlock(nn.Module):
         x_windows = window_partition(shifted_x, self.window_size)
         # nW*B, window_size*window_size, C
         x_windows = x_windows.view(-1, self.window_size * self.window_size, C)
-        # W-MSA/SW-MSA (to be compatible for testing on images whose shapes are the multiple of window size
+        # W-MSA/SW-MSA (to be compatible for testing on images whose shapes are
+        # the multiple of window size
         if self.input_resolution == x_size:
             # nW*B, window_size*window_size, C
             attn_windows = self.attn(x_windows, mask=self.attn_mask)
@@ -259,7 +281,6 @@ class RSTB(nn.Module):
                           norm_layer=norm_layer)
             for i in range(depth)])
 
-
     def forward(self, x, x_size):
         out = x
         for blk in self.blocks:
@@ -281,11 +302,27 @@ class RSTB(nn.Module):
 
 class SwinAttn(nn.Module):
 
-    def __init__(self, img_size=64, in_chans=3,
-                 embed_dim=96, depths=[6, 6, 6, 6], num_heads=[6, 6, 6, 6],
-                 window_size=7, mlp_ratio=4., qkv_bias=True, drop_path_rate=0.1,
-                 norm_layer=nn.LayerNorm,
-                 use_checkpoint=False):
+    def __init__(
+            self,
+            img_size=64,
+            in_chans=3,
+            embed_dim=96,
+            depths=[
+                6,
+                6,
+                6,
+                6],
+            num_heads=[
+                6,
+                6,
+                6,
+                6],
+        window_size=7,
+        mlp_ratio=4.,
+        qkv_bias=True,
+        drop_path_rate=0.1,
+        norm_layer=nn.LayerNorm,
+            use_checkpoint=False):
         super(SwinAttn, self).__init__()
         if in_chans == 3:
             rgb_mean = (0.4488, 0.4371, 0.4040)
@@ -304,8 +341,11 @@ class SwinAttn(nn.Module):
         self.patches_resolution = patches_resolution
 
         # stochastic depth
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate,
-                                                sum(depths))]  # stochastic depth decay rule
+        dpr = [
+            x.item() for x in torch.linspace(
+                0,
+                drop_path_rate,
+                sum(depths))]  # stochastic depth decay rule
 
         # build Residual Swin Transformer blocks (RSTB)
         self.layers = nn.ModuleList()
@@ -349,8 +389,11 @@ if __name__ == '__main__':
     window_size = 8
     height = (60 // upscale // window_size + 1) * window_size
     width = (180 // upscale // window_size + 1) * window_size
-    model = SwinAttn(upscale=2, img_size=(height, width), window_size=window_size, depths=[
-                     6, 6, 6, 6], embed_dim=60, num_heads=[6, 6, 6, 6], mlp_ratio=2)
+    model = SwinAttn(
+        upscale=2, img_size=(
+            height, width), window_size=window_size, depths=[
+            6, 6, 6, 6], embed_dim=60, num_heads=[
+                6, 6, 6, 6], mlp_ratio=2)
     print('Input Height:', height, 'Width: ', width)
     # print ('FLOPS: ', model.flops() / 1e9)
     x = torch.randn((1, 60, height, width))

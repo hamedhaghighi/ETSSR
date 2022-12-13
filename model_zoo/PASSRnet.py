@@ -1,9 +1,9 @@
-from turtle import up
+
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
-import matplotlib.pyplot as plt
 from skimage import morphology
+
 from models.BaseModel import BaseModel
 
 
@@ -12,17 +12,20 @@ def conv_flop(N, in_ch, out_ch, K, bias=False):
         return N * (K**2 * in_ch + 1) * out_ch
     return N * K**2 * in_ch * out_ch
 
+
 def ResB_flops(N, channel):
     return 2 * conv_flop(N, channel, channel, 3)
 
 
 def ResASPPB_flops(N, channel):
-    return 9 * conv_flop(N, channel, channel, 3) + 3 * conv_flop(N, channel * 3, channel, 3)
+    return 9 * conv_flop(N, channel, channel, 3) + 3 * \
+        conv_flop(N, channel * 3, channel, 3)
+
 
 class PASSRnet(BaseModel):
     def __init__(self, upscale_factor):
         super(PASSRnet, self).__init__()
-        ### feature extraction
+        # feature extraction
         self.upscale_factor = upscale_factor
         self.init_feature = nn.Sequential(
             nn.Conv2d(3, 64, 3, 1, 1, bias=False),
@@ -33,9 +36,9 @@ class PASSRnet(BaseModel):
             ResASPPB(64),
             ResB(64),
         )
-        ### paralax attention
+        # paralax attention
         self.pam = PAM(64)
-        ### upscaling
+        # upscaling
         self.upscale = nn.Sequential(
             ResB(64),
             ResB(64),
@@ -48,12 +51,12 @@ class PASSRnet(BaseModel):
         )
 
     def one_image_output(self, x_left, x_right):
-         ### feature extraction
+        # feature extraction
         buffer_left = self.init_feature(x_left)
         buffer_right = self.init_feature(x_right)
-        ### parallax attention
+        # parallax attention
         buffer = self.pam(buffer_left, buffer_right)
-        ### upscaling
+        # upscaling
         out = self.upscale(buffer)
         return out
 
@@ -77,10 +80,8 @@ class PASSRnet(BaseModel):
         flops += conv_flop(N, 64, 64 * self.upscale_factor ** 2, 1)
         flops += conv_flop(N * self.upscale_factor ** 2, 64, 3, 3)
         flops += conv_flop(N * self.upscale_factor ** 2, 3, 3, 3)
-        
+
         return 2 * flops
-
-
 
 
 class ResB(nn.Module):
@@ -100,24 +101,42 @@ class ResB(nn.Module):
 class ResASPPB(nn.Module):
     def __init__(self, channels):
         super(ResASPPB, self).__init__()
-        self.conv1_1 = nn.Sequential(nn.Conv2d(
-            channels, channels, 3, 1, 1, 1, bias=False), nn.LeakyReLU(0.1, inplace=True))
-        self.conv2_1 = nn.Sequential(nn.Conv2d(
-            channels, channels, 3, 1, 4, 4, bias=False), nn.LeakyReLU(0.1, inplace=True))
-        self.conv3_1 = nn.Sequential(nn.Conv2d(
-            channels, channels, 3, 1, 8, 8, bias=False), nn.LeakyReLU(0.1, inplace=True))
-        self.conv1_2 = nn.Sequential(nn.Conv2d(
-            channels, channels, 3, 1, 1, 1, bias=False), nn.LeakyReLU(0.1, inplace=True))
-        self.conv2_2 = nn.Sequential(nn.Conv2d(
-            channels, channels, 3, 1, 4, 4, bias=False), nn.LeakyReLU(0.1, inplace=True))
-        self.conv3_2 = nn.Sequential(nn.Conv2d(
-            channels, channels, 3, 1, 8, 8, bias=False), nn.LeakyReLU(0.1, inplace=True))
-        self.conv1_3 = nn.Sequential(nn.Conv2d(
-            channels, channels, 3, 1, 1, 1, bias=False), nn.LeakyReLU(0.1, inplace=True))
-        self.conv2_3 = nn.Sequential(nn.Conv2d(
-            channels, channels, 3, 1, 4, 4, bias=False), nn.LeakyReLU(0.1, inplace=True))
-        self.conv3_3 = nn.Sequential(nn.Conv2d(
-            channels, channels, 3, 1, 8, 8, bias=False), nn.LeakyReLU(0.1, inplace=True))
+        self.conv1_1 = nn.Sequential(
+            nn.Conv2d(
+                channels, channels, 3, 1, 1, 1, bias=False), nn.LeakyReLU(
+                0.1, inplace=True))
+        self.conv2_1 = nn.Sequential(
+            nn.Conv2d(
+                channels, channels, 3, 1, 4, 4, bias=False), nn.LeakyReLU(
+                0.1, inplace=True))
+        self.conv3_1 = nn.Sequential(
+            nn.Conv2d(
+                channels, channels, 3, 1, 8, 8, bias=False), nn.LeakyReLU(
+                0.1, inplace=True))
+        self.conv1_2 = nn.Sequential(
+            nn.Conv2d(
+                channels, channels, 3, 1, 1, 1, bias=False), nn.LeakyReLU(
+                0.1, inplace=True))
+        self.conv2_2 = nn.Sequential(
+            nn.Conv2d(
+                channels, channels, 3, 1, 4, 4, bias=False), nn.LeakyReLU(
+                0.1, inplace=True))
+        self.conv3_2 = nn.Sequential(
+            nn.Conv2d(
+                channels, channels, 3, 1, 8, 8, bias=False), nn.LeakyReLU(
+                0.1, inplace=True))
+        self.conv1_3 = nn.Sequential(
+            nn.Conv2d(
+                channels, channels, 3, 1, 1, 1, bias=False), nn.LeakyReLU(
+                0.1, inplace=True))
+        self.conv2_3 = nn.Sequential(
+            nn.Conv2d(
+                channels, channels, 3, 1, 4, 4, bias=False), nn.LeakyReLU(
+                0.1, inplace=True))
+        self.conv3_3 = nn.Sequential(
+            nn.Conv2d(
+                channels, channels, 3, 1, 8, 8, bias=False), nn.LeakyReLU(
+                0.1, inplace=True))
         self.b_1 = nn.Conv2d(channels * 3, channels, 1, 1, 0, bias=False)
         self.b_2 = nn.Conv2d(channels * 3, channels, 1, 1, 0, bias=False)
         self.b_3 = nn.Conv2d(channels * 3, channels, 1, 1, 0, bias=False)
@@ -160,7 +179,7 @@ class PAM(nn.Module):
         buffer_left = self.rb(x_left)
         buffer_right = self.rb(x_right)
 
-        ### M_{right_to_left}
+        # M_{right_to_left}
         # B * H * W * C
         Q = self.b1(buffer_left).permute(0, 2, 3, 1)
         # B * H * C * W
@@ -169,7 +188,7 @@ class PAM(nn.Module):
                           S.contiguous().view(-1, c, w))                                            # (B*H) * W * W
         M_right_to_left = self.softmax(score)
 
-        ### M_{left_to_right}
+        # M_{left_to_right}
         # B * H * W * C
         Q = self.b1(buffer_right).permute(0, 2, 3, 1)
         # B * H * C * W
@@ -178,12 +197,12 @@ class PAM(nn.Module):
                           S.contiguous().view(-1, c, w))                                            # (B*H) * W * W
         M_left_to_right = self.softmax(score)
 
-        ### valid masks
+        # valid masks
         V_left_to_right = torch.sum(M_left_to_right.detach(), 1) > 0.1
         V_left_to_right = V_left_to_right.view(b, 1, h, w)  # B * 1 * H * W
         V_left_to_right = morphologic_process(V_left_to_right)
 
-        ### fusion
+        # fusion
         buffer = self.b3(x_right).permute(0, 2, 3, 1).contiguous(
         ).view(-1, w, c)                      # (B*H) * W * C
         buffer = torch.bmm(M_right_to_left, buffer).contiguous().view(
@@ -215,7 +234,7 @@ def morphologic_process(mask):
         buffer = np.pad(mask_np[idx, 0, :, :], ((3, 3), (3, 3)), 'constant')
         buffer = morphology.binary_closing(buffer, morphology.disk(3))
         mask_np[idx, 0, :, :] = buffer[3:-3, 3:-3]
-    mask_np = 1-mask_np
+    mask_np = 1 - mask_np
     mask_np = mask_np.astype(float)
 
     return torch.from_numpy(mask_np).float().to(device)
