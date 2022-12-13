@@ -230,13 +230,13 @@ if __name__ == '__main__':
         '--test_data_dir',
         type=str,
         default='',
-        help='Path of the config file')
+        help='directory of test dataset')
     parser.add_argument(
         '--data_dir',
         type=str,
         default='',
         help='Path of the dataset')
-    parser.add_argument('--fast_test', default=False, action='store_true')
+    parser.add_argument('--fast_test', default=False, action='store_true', help='if true to training will be run for few epochs to make sure it works')
     args = parser.parse_args()
     cfg = cfg_parser(args)
     seed = 0

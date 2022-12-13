@@ -36,7 +36,6 @@ def show_img_for_crop(dir, filename):
 
 
 def crop_and_save_images(dir, search_name, left, top, right, bottom, view):
-
     for img_file_name in os.listdir(dir):
         if 'Cropped_' not in img_file_name and view in img_file_name:
             img = Image.open(os.path.join(dir, img_file_name))
@@ -204,18 +203,7 @@ if __name__ == '__main__':
             left_1, top_1, right_1, bottom_1 = show_img_for_crop(
                 dir, filename_2)
 
-            exp_names = [
-                'Bicubic_sr',
-                'Bicubic_hr',
-                'iPASSR',
-                'PASSRnet',
-                'RCAN',
-                'VDSR',
-                'ETSSR',
-                'RDN',
-                'EDSR',
-                'SSRDEFNet',
-                'StereoSR']
+            exp_names = ['Bicubic_sr', 'Bicubic_hr', 'iPASSR', 'PASSRnet', 'RCAN', 'VDSR', 'ETSSR', 'RDN', 'EDSR', 'SSRDEFNet', 'StereoSR']
             dir = '../checkpoints/'
             copy_from_checkpoints_to_all_results(filename, dir, exp_names)
             copy_from_checkpoints_to_all_results(
@@ -235,18 +223,7 @@ if __name__ == '__main__':
         dir = '../checkpoints/all_results/'
         all_results_img_dir = os.path.join(dir, filename)
         # exp_names = ['Bicubic', 'VDSR', 'EDSR', 'RCAN', 'RDN', 'StereoSR', 'PASSRnet','iPASSR','SSRDEFNet','ETSSR','HR']
-        exp_names = [
-            'Bicubic',
-            'VDSR',
-            'RCAN',
-            'EDSR',
-            'RDN',
-            'StereoSR',
-            'PASSRnet',
-            'SSRDEFNet',
-            'iPASSR',
-            'ETSSR',
-            'HR']
+        exp_names = ['Bicubic', 'VDSR', 'RCAN', 'EDSR', 'RDN', 'StereoSR', 'PASSRnet', 'SSRDEFNet', 'iPASSR','ETSSR','HR']
         # for fn in os.listdir(all_results_img_dir):
         #     if 'Cropped' not in fn and 'HR' in fn and 'left' in fn:
         #         im = plt.imread(os.path.join(all_results_img_dir, fn))

@@ -1,0 +1,11 @@
+airsim
+matplotlib
+numpy
+opencv_python
+Pillow
+PyYAML
+scikit_image
+skimage
+timm
+torch
+tqdm
