@@ -1,0 +1,40 @@
+{
+  "SeeDocsAt": "https://github.com/Microsoft/AirSim/blob/master/docs/settings.md",
+  "SettingsVersion": 1.2,
+  "SimMode": "ComputerVision",
+  "Vehicles": {
+    "mycar": {
+      "VehicleType": "ComputerVision",
+      "Cameras": {
+        "0": {
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 1280,
+              "Height": 720
+            }
+          ],
+          "Roll": 0.0,
+          "Yaw": 0.0,
+          "X": 1.0,
+          "Y": -0.06,
+          "Z": -1.65
+        },
+        "1": {
+          "CaptureSettings": [
+            {
+              "ImageType": 0,
+              "Width": 1280,
+              "Height": 720
+            }
+          ],
+          "Roll": 0.0,
+          "Yaw": 0.0,
+          "X": 1.0,
+          "Y": 0.48,
+          "Z": -1.65
+        }
+      }
+    }
+  }
+}
