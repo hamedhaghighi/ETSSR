@@ -1,10 +1,10 @@
 # Fast Stereo Camera Simulation using Super Resolution Techniques for Automotive Applications
 We propose a method for acceleration of stereo camera simulation using stereo super resolution (SSR). This repository mainly contains the implementation of our SSR model (ETSSR) and other super-resolution (SR) models cited in the paper.
 
-<p align="center"><img src="figures/approach.png" alt="drawing" width="40%"/></p>
+<p align="center"><img src="figures/approach.png" alt="drawing" width="100%"/></p>
 
 
-<p align="center"> <a href="https://drive.google.com/file/d/16g_auVrOOaZKLONwjdmndrd6Cj9VMKHY/preview"><img src="figures/vid_snapshot.png" width="100%"></a></p>
+<p align="center"> <a href="https://drive.google.com/file/d/16g_auVrOOaZKLONwjdmndrd6Cj9VMKHY/view?usp=sharing"><img src="figures/vid_snapshot.png" width="100%"></a></p>
 
 ## Installation
 ### Dependencies
