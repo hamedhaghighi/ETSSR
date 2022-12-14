@@ -16,3 +16,4 @@ results/
 checkpoints*
 *.onnx
 data/
+configs/
