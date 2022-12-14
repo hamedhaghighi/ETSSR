@@ -11,7 +11,7 @@ devel/
 logs/
 external.hpp
 log/
-configs/
+Airsim-datageneration/
 results/
 checkpoints*
 *.onnx
