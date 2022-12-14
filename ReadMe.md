@@ -1,7 +1,10 @@
 # Fast Stereo Camera Simulation using Super Resolution Techniques for Automotive Applications
 We propose a method for acceleration of stereo camera simulation using stereo super resolution (SSR). This repository mainly contains the implementation of our SSR model (ETSSR) and other super-resolution (SR) models cited in the paper.
 
-<img src="figures/approach.png" alt="drawing" width="500"/>
+<p align="center"><img src="figures/approach.png" alt="drawing" width="40%"/></p>
+
+
+<p align="center"> <a href="https://drive.google.com/file/d/16g_auVrOOaZKLONwjdmndrd6Cj9VMKHY/preview"><img src="figures/vid_snapshot.png" width="100%"></a></p>
 
 ## Installation
 ### Dependencies
@@ -31,7 +34,7 @@ You need to set the directory of downloaded CMRSI dataset and the destination di
  
 - Set the training parameters in the `train.yaml` file in the `.\configs` folder.
 
- You must change the "data_dir" and "test_data_dir"  parameters in the config file. "data_dir" is the path to the CMRSI image patches and "test_data_dir" is the path to orignal CMRSI path.
+ You must change the "data_dir" to the path to CMRSI image patches and "test_data_dir" to the path to orignal CMRSI path in the config file.
 
 - Run the training code using:
 
@@ -50,17 +53,24 @@ You must change "data_dir" parameters in the config file to the path of CMRSI da
 
 
 ```
-python train.py --cfg .\configs\test.yaml
+python test.py --cfg .\configs\test.yaml
 ```
 
 The code calculates PSNR/SSIM on the test set and saves output images in the "checkpoint_dir".
 
 ## Profiling
 
-To calculate the parameters and Flops of SR models run:
+To calculate the number of parameters and Flops of SR models run:
 
 ```
 python profiler.py
 ```
 Set the model name inside the python code.
+
+## Acknowledgements
+
+- State-of-the-art SR models implementations from [YingqianWang](https://github.com/YingqianWang/iPASSR)
+
+- Swin-transformer Layers from [JingyunLiang](https://github.com/JingyunLiang/SwinIR)
+ 
 
