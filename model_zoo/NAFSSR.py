@@ -35,9 +35,7 @@ class AvgPool2d(nn.Module):
         self.train_size = train_size
 
     def extra_repr(self) -> str:
-        return 'kernel_size={}, base_size={}, stride={}, fast_imp={}'.format(
-            self.kernel_size, self.base_size, self.kernel_size, self.fast_imp
-        )
+        return 'kernel_size={}, base_size={}, stride={}, fast_imp={}'.format(self.kernel_size, self.base_size, self.kernel_size, self.fast_imp)
 
     def forward(self, x):
         if self.kernel_size is None and self.base_size:
@@ -51,10 +49,9 @@ class AvgPool2d(nn.Module):
             # only used for fast implementation
             self.max_r1 = max(1, self.rs[0] * x.shape[2] // train_size[-2])
             self.max_r2 = max(1, self.rs[0] * x.shape[3] // train_size[-1])
-
+            
         if self.kernel_size[0] >= x.size(-2) and self.kernel_size[1] >= x.size(-1):
             return F.adaptive_avg_pool2d(x, 1)
-
         if self.fast_imp:  # Non-equivalent implementation but faster
             h, w = x.shape[2:]
             if self.kernel_size[0] >= h and self.kernel_size[1] >= w:
@@ -86,7 +83,7 @@ class AvgPool2d(nn.Module):
             pad2d = ((w - _w) // 2, (w - _w + 1) // 2, (h - _h) // 2, (h - _h + 1) // 2)
             out = torch.nn.functional.pad(out, pad2d, mode='replicate')
 
-        return 
+        return out
 
 def replace_layers(model, base_size, train_size, fast_imp, **kwargs):
     for n, m in model.named_children():
