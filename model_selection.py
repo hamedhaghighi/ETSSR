@@ -7,6 +7,7 @@ from model_zoo.RCAN import RCAN
 from model_zoo.EDSR import EDSR
 from model_zoo.EDSR import EDSR
 from model_zoo.SRresNet_SAM import _NetG_SAM
+from model_zoo.NAFSSR import NAFSSR
 
 def model_selection(model_name, upscale_factor=2, H=None, W=None, C=None, w_size=None, device='cuda'):
     if 'mine' in model_name:
@@ -25,4 +26,8 @@ def model_selection(model_name, upscale_factor=2, H=None, W=None, C=None, w_size
         net = EDSR(upscale_factor)
     elif model_name == 'SAM':
         net = _NetG_SAM(upscale_factor)
+    elif model_name == 'NAFSSR':
+        width = 48
+        num_blks= 16
+        net = NAFSSR(up_scale=upscale_factor, train_size=(1, 6, H, W), fast_imp=True, width=width, num_blks=num_blks, drop_path_rate=0.2)
     return net.to(device)

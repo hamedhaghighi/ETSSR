@@ -46,7 +46,7 @@ class cfg_parser():
         self.fast_test = args.fast_test
         self.cfg_path = args.cfg
 
-def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
+def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase, net_test=None):
     dl_iter = iter(dl)
     n_batch = len(dl) if not cfg.fast_test else 2
     loss_list = defaultdict(list)
@@ -97,7 +97,10 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
                 batch_size = 1
                 lr_left, lr_right = toTensor(LR_left).to(cfg.device).unsqueeze(0), toTensor(LR_right).to(cfg.device).unsqueeze(0)
                 with torch.no_grad():
-                    SR_left, SR_right = net(lr_left, lr_right)
+                    if cfg.model == 'NAFSSR':
+                        SR_left, SR_right = net_test(lr_left, lr_right)
+                    else:
+                        SR_left, SR_right = net(lr_left, lr_right)
                 SR_left, SR_right = toNdarray(torch.clamp(SR_left, 0, 1)).squeeze(), toNdarray(torch.clamp(SR_right, 0, 1)).squeeze()
 
                 psnr_left = compare_psnr(HR_left[..., :3].astype('uint8'), SR_left)
@@ -131,9 +134,12 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase):
     return idx_step,  avg_sr_loss
 
 def train(train_loader, val_loader, cfg):
+    net_test = None
     IC = cfg.input_channel
     input_size = check_input_size(cfg.input_resolution, cfg.w_size)
     net = model_selection(cfg.model, cfg.scale_factor, input_size[0], input_size[1], IC, cfg.w_size, cfg.device)
+    if cfg.model == 'NAFSSR':
+        net_test = model_selection(cfg.model, cfg.scale_factor, 360, 640, IC, cfg.w_size, cfg.device)
     if cfg.load:
         model_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '_last' +'.pth')
         if os.path.isfile(model_path):
@@ -153,8 +159,8 @@ def train(train_loader, val_loader, cfg):
     last_ckpt_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '_last' + '.pth')
     vis = Logger(cfg)
     for idx_epoch in range(cfg.start_epoch, cfg.n_epochs):
-        idx_step , _ = step(net, train_loader, optimizer, vis, idx_epoch, idx_step, cfg, 'train')
-        _, val_loss = step(net, val_loader, optimizer, vis, idx_epoch, idx_step, cfg, 'val')
+        idx_step , _ = step(net, train_loader, optimizer, vis, idx_epoch, idx_step, cfg, 'train', net_test=net_test)
+        _, val_loss = step(net, val_loader, optimizer, vis, idx_epoch, idx_step, cfg, 'val', net_test=net_test)
         scheduler.step()
         if val_loss < min_val_loss:
             min_val_loss = val_loss
