@@ -17,7 +17,7 @@ from dataset import toNdarray, toTensor
 from model_selection import model_selection
 from utils import check_input_size
 from visualizer import Logger
-
+from tqdm import trange
 
 def modify_opt_for_fast_test(opt):
     opt.n_epochs = 2
@@ -82,22 +82,18 @@ def step(net, dl, optimizer, vis, idx_epoch, idx_step, cfg, phase, net_test=None
         for env in sorted(os.listdir(cfg.test_data_dir)):
             t_cfg = deepcopy(cfg)
             t_cfg.test_data_dir = os.path.join(cfg.test_data_dir, env)
-            total_dataset = dataset.DataSetLoader(
-                t_cfg, to_tensor=False, test_for_train=True)
-            test_set = Subset(total_dataset, range(
-                len(total_dataset))[-len(total_dataset) // 10:])
+            total_dataset = dataset.DataSetLoader(t_cfg, to_tensor=False, test_for_train=True)
+            test_set = Subset(total_dataset, range(len(total_dataset))[-len(total_dataset) // 10:])
             psnr_right_list = []
             psnr_left_list = []
             ssim_left_list = []
             ssim_right_list = []
-            for idx in range(len(test_set)):
+            for idx in trange(len(test_set), desc=f"iterating over test set in env {env}"):
                 HR_left, HR_right, LR_left, LR_right = test_set[idx]
                 # HR_left, HR_right, LR_left, LR_right = HR_left[:120,:360], HR_right[:120,:360], LR_left[:30,:90], LR_right[:30,:90]
                 h, w, _ = LR_left.shape
                 batch_size = 1
-                lr_left, lr_right = toTensor(LR_left).to(
-                    cfg.device).unsqueeze(0), toTensor(LR_right).to(
-                    cfg.device).unsqueeze(0)
+                lr_left, lr_right = toTensor(LR_left).to(cfg.device).unsqueeze(0), toTensor(LR_right).to(cfg.device).unsqueeze(0)
                 with torch.no_grad():
                     if cfg.model == 'NAFSSR':
                         SR_left, SR_right = net_test(lr_left, lr_right)
@@ -152,10 +148,9 @@ def train(train_loader, val_loader, cfg):
     net = model_selection(cfg.model, cfg.scale_factor, input_size[0], input_size[1], IC, cfg.w_size, cfg.device)
     if cfg.model == 'NAFSSR':
         net_test = model_selection(cfg.model, cfg.scale_factor, 360, 640, IC, cfg.w_size, cfg.device)
+        net_test.train(False)
     if cfg.load:
-        model_path = os.path.join(cfg.checkpoints_dir,
-                                  cfg.exp_name,
-                                  'modelx' + str(cfg.scale_factor) + '_last' + '.pth')
+        model_path = os.path.join(cfg.checkpoints_dir, cfg.exp_name, 'modelx' + str(cfg.scale_factor) + '_last' + '.pth')
         if os.path.isfile(model_path):
             model = torch.load(model_path, map_location={'cuda:0': cfg.device})
             net.load_state_dict(model['state_dict'])
