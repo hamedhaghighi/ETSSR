@@ -1,23 +1,21 @@
-from tkinter import N
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
-import matplotlib.pyplot as plt
-from skimage import morphology
-from torchvision import transforms
 import torch.utils.checkpoint as checkpoint
-try:
-    from extra.SwinTransformerjit import SwinAttn, CoSwinAttnBlock, RSTB
-except:
-    from SwinTransformerjit import SwinAttn, CoSwinAttnBlock, RSTB
-from timm.models.layers import trunc_normal_
 
-import time
+try:
+    from extra.SwinTransformerjit import RSTB, CoSwinAttnBlock, SwinAttn
+except BaseException:
+    from SwinTransformerjit import SwinAttn, CoSwinAttnBlock, RSTB
+
+
+from timm.models.layers import trunc_normal_
 
 
 class Net(nn.Module):
-    def __init__(self, upscale_factor, img_size, model, input_channel=3, w_size=8, embed_dim=64, device='cpu'):
+    def __init__(self, upscale_factor, img_size, model,
+                 input_channel=3, w_size=8, embed_dim=64, device='cpu'):
         super(Net, self).__init__()
         self.model = model
         self.w_size = w_size
@@ -30,22 +28,64 @@ class Net(nn.Module):
         num_heads = [4, 4]
         if self.model == 'swin_interleaved':
             self.deep_feature = SwinAttnInterleaved(
-                img_size=img_size, window_size=w_size, depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
+                img_size=img_size,
+                window_size=w_size,
+                depths=depths,
+                embed_dim=embed_dim,
+                num_heads=num_heads,
+                mlp_ratio=2)
         else:
-            self.deep_feature = SwinAttn(img_size=img_size, window_size=w_size,
-                                         depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
+            self.deep_feature = SwinAttn(
+                img_size=img_size,
+                window_size=w_size,
+                depths=depths,
+                embed_dim=embed_dim,
+                num_heads=num_heads,
+                mlp_ratio=2)
             if model == 'swin_pam':
                 self.co_feature = PAM(embed_dim)
             elif model == 'all_swin':
-                self.co_feature = CoSwinAttn(img_size=img_size, window_size=w_size,
-                                             depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
+                self.co_feature = CoSwinAttn(
+                    img_size=img_size,
+                    window_size=w_size,
+                    depths=depths,
+                    embed_dim=embed_dim,
+                    num_heads=num_heads,
+                    mlp_ratio=2)
             self.CAlayer = CALayer(embed_dim * 2)
-            self.fusion = nn.Sequential(self.CAlayer, nn.Conv2d(
-                embed_dim * 2, embed_dim, kernel_size=1, stride=1, padding=0, bias=True))
-            self.reconstruct = SwinAttn(img_size=img_size, window_size=w_size,
-                                        depths=depths, embed_dim=embed_dim, num_heads=num_heads, mlp_ratio=2)
-        self.upscale = nn.Sequential(nn.Conv2d(embed_dim, embed_dim * upscale_factor ** 2, 1, 1, 0,
-                                               bias=True), nn.PixelShuffle(upscale_factor), nn.Conv2d(embed_dim, 3, 3, 1, 1, bias=True))
+            self.fusion = nn.Sequential(
+                self.CAlayer,
+                nn.Conv2d(
+                    embed_dim * 2,
+                    embed_dim,
+                    kernel_size=1,
+                    stride=1,
+                    padding=0,
+                    bias=True))
+            self.reconstruct = SwinAttn(
+                img_size=img_size,
+                window_size=w_size,
+                depths=depths,
+                embed_dim=embed_dim,
+                num_heads=num_heads,
+                mlp_ratio=2)
+        self.upscale = nn.Sequential(
+            nn.Conv2d(
+                embed_dim,
+                embed_dim *
+                upscale_factor ** 2,
+                1,
+                1,
+                0,
+                bias=True),
+            nn.PixelShuffle(upscale_factor),
+            nn.Conv2d(
+                embed_dim,
+                3,
+                3,
+                1,
+                1,
+                bias=True))
         self.apply(self._init_weights)
 
     def forward(self, x_left, x_right):
@@ -55,8 +95,10 @@ class Net(nn.Module):
 
         d_left = x_left[:, 3] if c > 3 else torch.empty(1)
         d_right = x_right[:, 3] if c > 3 else torch.empty(1)
-        x_left_upscale = F.interpolate(x_left[:, :3], scale_factor=float(self.upscale_factor), mode='bicubic', align_corners=False)
-        x_right_upscale = F.interpolate(x_right[:, :3], scale_factor=float(self.upscale_factor), mode='bicubic', align_corners=False)
+        x_left_upscale = F.interpolate(x_left[:, :3], scale_factor=float(
+            self.upscale_factor), mode='bicubic', align_corners=False)
+        x_right_upscale = F.interpolate(x_right[:, :3], scale_factor=float(
+            self.upscale_factor), mode='bicubic', align_corners=False)
         buffer_left = self.init_feature(x_left)
         buffer_right = self.init_feature(x_right)
         # if self.model == 'swin_interleaved':
@@ -150,9 +192,9 @@ class CALayer(nn.Module):
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.channel = channel
         self.conv_du = nn.Sequential(
-            nn.Conv2d(channel, channel//16, 1, padding=0, bias=True),
+            nn.Conv2d(channel, channel // 16, 1, padding=0, bias=True),
             nn.LeakyReLU(0.1, inplace=True),
-            nn.Conv2d(channel//16, channel, 1, padding=0, bias=True),
+            nn.Conv2d(channel // 16, channel, 1, padding=0, bias=True),
             nn.Sigmoid())
 
     def forward(self, x):
@@ -163,8 +205,8 @@ class CALayer(nn.Module):
     def flop(self, N):
         flop = 0
         flop += N * self.channel
-        flop += (self.channel + 1) * self.channel//16
-        flop += (self.channel//16 + 1) * self.channel
+        flop += (self.channel + 1) * self.channel // 16
+        flop += (self.channel // 16 + 1) * self.channel
         flop += N * self.channel
         return flop
 
@@ -243,11 +285,30 @@ class CoRSTB(nn.Module):
 
 
 class CoSwinAttn(nn.Module):
-    def __init__(self, img_size=64, patch_size=1, in_chans=3,
-                 embed_dim=96, depths=[6, 6, 6, 6], num_heads=[6, 6, 6, 6],
-                 window_size=7, mlp_ratio=4., qkv_bias=True, drop_path_rate=0.1,
-                 norm_layer=nn.LayerNorm, ape=False, patch_norm=True,
-                 use_checkpoint=False):
+    def __init__(
+            self,
+            img_size=64,
+            patch_size=1,
+            in_chans=3,
+            embed_dim=96,
+            depths=[
+                6,
+                6,
+                6,
+                6],
+            num_heads=[
+                6,
+                6,
+                6,
+                6],
+        window_size=7,
+        mlp_ratio=4.,
+        qkv_bias=True,
+        drop_path_rate=0.1,
+        norm_layer=nn.LayerNorm,
+        ape=False,
+        patch_norm=True,
+            use_checkpoint=False):
         super(CoSwinAttn, self).__init__()
         if in_chans == 3:
             rgb_mean = (0.4488, 0.4371, 0.4040)
@@ -269,8 +330,11 @@ class CoSwinAttn(nn.Module):
         self.pre_norm = norm_layer(embed_dim)
 
         # stochastic depth
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate,
-                                                sum(depths))]  # stochastic depth decay rule
+        dpr = [
+            x.item() for x in torch.linspace(
+                0,
+                drop_path_rate,
+                sum(depths))]  # stochastic depth decay rule
 
         # build Residual Swin Transformer blocks (RSTB)
         self.layers = nn.ModuleList()
@@ -318,11 +382,29 @@ class CoSwinAttn(nn.Module):
 
 
 class SwinAttnInterleaved(nn.Module):
-    def __init__(self, img_size=64, in_chans=3,
-                 embed_dim=96, depths=[6, 6, 6, 6], num_heads=[6, 6, 6, 6],
-                 window_size=7, mlp_ratio=4., qkv_bias=True, drop_path_rate=0.1,
-                 norm_layer=nn.LayerNorm, ape=False, patch_norm=True,
-                 use_checkpoint=False):
+    def __init__(
+            self,
+            img_size=64,
+            in_chans=3,
+            embed_dim=96,
+            depths=[
+                6,
+                6,
+                6,
+                6],
+            num_heads=[
+                6,
+                6,
+                6,
+                6],
+        window_size=7,
+        mlp_ratio=4.,
+        qkv_bias=True,
+        drop_path_rate=0.1,
+        norm_layer=nn.LayerNorm,
+        ape=False,
+        patch_norm=True,
+            use_checkpoint=False):
         super(SwinAttnInterleaved, self).__init__()
         if in_chans == 3:
             rgb_mean = (0.4488, 0.4371, 0.4040)
@@ -344,8 +426,11 @@ class SwinAttnInterleaved(nn.Module):
         self.pre_norm = norm_layer(embed_dim)
 
         # stochastic depth
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate,
-                                                sum(depths))]  # stochastic depth decay rule
+        dpr = [
+            x.item() for x in torch.linspace(
+                0,
+                drop_path_rate,
+                sum(depths))]  # stochastic depth decay rule
 
         # build Residual Swin Transformer blocks (RSTB)
         self.disjoint_layers = nn.ModuleList()
@@ -435,15 +520,21 @@ class PAM(nn.Module):
         K = K - torch.mean(K, 3).unsqueeze(3).repeat(1, 1, 1, w)
 
         score = Q.permute(0, 2, 3, 1).contiguous().view(-1, w,
-                                                        c)@ K.permute(0, 2, 1, 3).contiguous().view(-1, c, w)
+                                                        c) @ K.permute(0, 2, 1, 3).contiguous().view(-1, c, w)
         # (B*H) * Wl * Wr
         M_right_to_left = self.softmax(score)
         # (B*H) * Wr * Wl
         M_left_to_right = self.softmax(score.permute(0, 2, 1))
 
         M_right_to_left_relaxed = M_Relax(M_right_to_left)
-        V_left = (M_right_to_left_relaxed.contiguous().view(-1, w).unsqueeze(1) @ M_left_to_right.permute(0, 2,
-                                                                                                          1).contiguous().view(-1, w).unsqueeze(2)).detach().contiguous().view(b, 1, h, w)  # (B*H*Wr) * Wl * 1
+        V_left = (M_right_to_left_relaxed.contiguous().view(-1,
+                                                            w).unsqueeze(1) @ M_left_to_right.permute(0,
+                                                                                                      2,
+                                                                                                      1).contiguous().view(-1,
+                                                                                                                           w).unsqueeze(2)).detach().contiguous().view(b,
+                                                                                                                                                                       1,
+                                                                                                                                                                       h,
+                                                                                                                                                                       w)  # (B*H*Wr) * Wl * 1
         M_left_to_right_relaxed = M_Relax(M_left_to_right)
         V_right = (M_left_to_right_relaxed.contiguous().view(-1, w).unsqueeze(1) @  # (B*H*Wl) * 1 * Wr
                    M_right_to_left.permute(
@@ -453,10 +544,30 @@ class PAM(nn.Module):
         V_left_tanh = torch.tanh(5 * V_left)
         V_right_tanh = torch.tanh(5 * V_right)
 
-        x_leftT = (M_right_to_left @ x_right.permute(0, 2, 3, 1).contiguous(
-        ).view(-1, w, c)).contiguous().view(b, h, w, c).permute(0, 3, 1, 2)  # B, C0, H0, W0
-        x_rightT = (M_left_to_right @ x_left.permute(0, 2, 3, 1).contiguous(
-        ).view(-1, w, c)).contiguous().view(b, h, w, c).permute(0, 3, 1, 2)  # B, C0, H0, W0
+        x_leftT = (M_right_to_left @ x_right.permute(0,
+                                                     2,
+                                                     3,
+                                                     1).contiguous().view(-1,
+                                                                          w,
+                                                                          c)).contiguous().view(b,
+                                                                                                h,
+                                                                                                w,
+                                                                                                c).permute(0,
+                                                                                                           3,
+                                                                                                           1,
+                                                                                                           2)  # B, C0, H0, W0
+        x_rightT = (M_left_to_right @ x_left.permute(0,
+                                                     2,
+                                                     3,
+                                                     1).contiguous().view(-1,
+                                                                          w,
+                                                                          c)).contiguous().view(b,
+                                                                                                h,
+                                                                                                w,
+                                                                                                c).permute(0,
+                                                                                                           3,
+                                                                                                           1,
+                                                                                                           2)  # B, C0, H0, W0
         out_left = x_left * (1 - V_left_tanh.repeat(1, c, 1, 1)) + \
             x_leftT * V_left_tanh.repeat(1, c, 1, 1)
         out_right = x_right * (1 - V_right_tanh.repeat(1, c, 1, 1)) + \
@@ -479,16 +590,16 @@ def M_Relax(M):
     M_list = []
     M_list.append(M.unsqueeze(1))
     i = 0
-    pad_M = F.pad(M[:, :-1-i, :], pad=(0, 0, i+1, 0))
+    pad_M = F.pad(M[:, :-1 - i, :], pad=(0, 0, i + 1, 0))
     M_list.append(pad_M.unsqueeze(1))
     i = 1
-    pad_M = F.pad(M[:, :-1-i, :], pad=(0, 0, i+1, 0))
+    pad_M = F.pad(M[:, :-1 - i, :], pad=(0, 0, i + 1, 0))
     M_list.append(pad_M.unsqueeze(1))
     i = 0
-    pad_M = F.pad(M[:, i+1:, :], pad=(0, 0, 0, i+1))
+    pad_M = F.pad(M[:, i + 1:, :], pad=(0, 0, 0, i + 1))
     M_list.append(pad_M.unsqueeze(1))
     i = 1
-    pad_M = F.pad(M[:, i+1:, :], pad=(0, 0, 0, i+1))
+    pad_M = F.pad(M[:, i + 1:, :], pad=(0, 0, 0, i + 1))
     M_list.append(pad_M.unsqueeze(1))
     M_relaxed = torch.sum(torch.cat(M_list, 1), dim=1)
     return M_relaxed
@@ -499,8 +610,13 @@ if __name__ == "__main__":
     starter, ender = torch.cuda.Event(
         enable_timing=True), torch.cuda.Event(enable_timing=True)
     # net = torch.jit.script(Net(upscale_factor=2, img_size=input_shape,
-    #                            model='swin_pam', input_channel=10, w_size=8)).cuda()
-    net = Net(upscale_factor=2, img_size=input_shape, model='swin_pam', input_channel=10, w_size=8).cuda()
+    # model='swin_pam', input_channel=10, w_size=8)).cuda()
+    net = Net(
+        upscale_factor=2,
+        img_size=input_shape,
+        model='swin_pam',
+        input_channel=10,
+        w_size=8).cuda()
     net.eval()
     total = sum([param.nelement() for param in net.parameters()])
     x = torch.clamp(torch.randn(

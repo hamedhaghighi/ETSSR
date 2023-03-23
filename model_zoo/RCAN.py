@@ -1,10 +1,5 @@
-from termios import N_MOUSE
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import numpy as np
-import matplotlib.pyplot as plt
-from skimage import morphology
+
 from models.BaseModel import BaseModel
 
 
@@ -12,6 +7,7 @@ def conv_flop(N, in_ch, out_ch, K, bias=False):
     if bias:
         return N * (K**2 * in_ch + 1) * out_ch
     return N * K**2 * in_ch * out_ch
+
 
 class RCAN(BaseModel):
     def __init__(self, upscale_factor):
@@ -55,7 +51,7 @@ class RCAN(BaseModel):
         x_left = self.one_image_output(x_left[:, :3])
         x_right = self.one_image_output(x_right[:, :3])
         return x_left, x_right
-    
+
     def flop(self, H, W):
         N = H * W
         flop = 0
@@ -63,20 +59,20 @@ class RCAN(BaseModel):
         flop += 10 * self.RG1.flop(N)
         flop += conv_flop(N, 64, 64 * self.upscale_factor**2, 1)
         flop += conv_flop(N * self.upscale_factor**2, 64, 3, 3)
-        return flop
+        return 2 * flop
 
 
-## Channel Attention (CA) Layer
+# Channel Attention (CA) Layer
 class CALayer(nn.Module):
     def __init__(self, channel):
         super(CALayer, self).__init__()
         self.channel = channel
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.conv_du = nn.Sequential(
-                nn.Conv2d(channel, 4, 1, padding=0, bias=True),
-                nn.LeakyReLU(0.1, inplace=True),
-                nn.Conv2d(4, channel, 1, padding=0, bias=True),
-                nn.Sigmoid()
+            nn.Conv2d(channel, 4, 1, padding=0, bias=True),
+            nn.LeakyReLU(0.1, inplace=True),
+            nn.Conv2d(4, channel, 1, padding=0, bias=True),
+            nn.Sigmoid()
         )
 
     def forward(self, x):
@@ -93,7 +89,7 @@ class CALayer(nn.Module):
         return flop
 
 
-## Residual Channel Attention Block (RCAB)
+# Residual Channel Attention Block (RCAB)
 class RCAB(nn.Module):
     def __init__(self, n_feat):
         super(RCAB, self).__init__()
@@ -101,7 +97,8 @@ class RCAB(nn.Module):
         modules_body = []
         for i in range(2):
             modules_body.append(nn.Conv2d(n_feat, n_feat, 3, 1, 1))
-            if i == 0: modules_body.append(nn.LeakyReLU(0.1, inplace=True))
+            if i == 0:
+                modules_body.append(nn.LeakyReLU(0.1, inplace=True))
         self.ca_layer = CALayer(n_feat)
         modules_body.append(self.ca_layer)
         self.body = nn.Sequential(*modules_body)
@@ -117,14 +114,16 @@ class RCAB(nn.Module):
         flop += self.ca_layer.flop(N)
         return flop
 
-## Residual Group (RG)
+# Residual Group (RG)
+
+
 class ResidualGroup(nn.Module):
     def __init__(self, n_feat, n_resblocks):
         super(ResidualGroup, self).__init__()
         self.n_feat = n_feat
         self.n_resblocks = n_resblocks
         self.modules_body = [
-            RCAB(n_feat) \
+            RCAB(n_feat)
             for _ in range(n_resblocks)]
         self.modules_body.append(nn.Conv2d(n_feat, n_feat, 3, 1, 1))
         self.body = nn.Sequential(*self.modules_body)
@@ -133,10 +132,9 @@ class ResidualGroup(nn.Module):
         res = self.body(x)
         res += x
         return res
-    
+
     def flop(self, N):
         flop = 0
         flop += self.n_resblocks * self.modules_body[0].flop(N)
         flop += conv_flop(N, self.n_feat, self.n_feat, 3)
         return flop
-

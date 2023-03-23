@@ -1,8 +1,11 @@
+from math import sqrt
+
 import torch
 import torch.nn as nn
-from math import sqrt
-from models.BaseModel import BaseModel
 import torch.nn.functional as F
+
+from models.BaseModel import BaseModel
+
 
 def conv_flop(N, in_ch, out_ch, K, bias=False):
     if bias:
@@ -13,20 +16,38 @@ def conv_flop(N, in_ch, out_ch, K, bias=False):
 class Conv_ReLU_Block(nn.Module):
     def __init__(self):
         super(Conv_ReLU_Block, self).__init__()
-        self.conv = nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.conv = nn.Conv2d(
+            in_channels=64,
+            out_channels=64,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=False)
         self.relu = nn.ReLU(inplace=True)
 
     def forward(self, x):
         return self.relu(self.conv(x))
-    
+
 
 class VDSR(BaseModel):
     def __init__(self, upscale_factor):
         super(VDSR, self).__init__()
         self.upscale_factor = upscale_factor
         self.residual_layer = self.make_layer(Conv_ReLU_Block, 18)
-        self.input = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=1, padding=1, bias=False)
-        self.output = nn.Conv2d(in_channels=64, out_channels=3, kernel_size=3, stride=1, padding=1, bias=False)
+        self.input = nn.Conv2d(
+            in_channels=3,
+            out_channels=64,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=False)
+        self.output = nn.Conv2d(
+            in_channels=64,
+            out_channels=3,
+            kernel_size=3,
+            stride=1,
+            padding=1,
+            bias=False)
         self.relu = nn.ReLU(inplace=True)
 
         for m in self.modules():
@@ -40,7 +61,6 @@ class VDSR(BaseModel):
             layers.append(block())
         return nn.Sequential(*layers)
 
-    
     def one_image_output(self, x):
         residual = x
         out = self.relu(self.input(x))
@@ -50,22 +70,21 @@ class VDSR(BaseModel):
         return out
 
     def forward(self, x_left, x_right):
-        x_left_upscale = F.interpolate(x_left[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
-        x_right_upscale = F.interpolate(x_right[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
+        x_left_upscale = F.interpolate(
+            x_left[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
+        x_right_upscale = F.interpolate(
+            x_right[:, :3], scale_factor=self.upscale_factor, mode='bicubic', align_corners=False)
         x_left = self.one_image_output(x_left_upscale)
         x_right = self.one_image_output(x_right_upscale)
         return x_left, x_right
 
-    
     def flop(self, H, W):
         N = H * W
         flop = 0
         # input
-        flop += conv_flop(N, 3, 64, 3, False)
+        flop += conv_flop(N * 16, 3, 64, 3, False)
         # residual
-        flop += 18 * conv_flop(N, 64, 64, 3, False)
+        flop += 18 * conv_flop(N * 16, 64, 64, 3, False)
         # output
-        flop += conv_flop(N, 64, 3, 3, False)
-        return flop
-
-
+        flop += conv_flop(N * 16, 64, 3, 3, False)
+        return 2 * flop
