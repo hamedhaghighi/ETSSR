@@ -35,7 +35,7 @@ def model_selection(model_name, upscale_factor=2, H=None,
     elif model_name == 'NAFSSR':
         width = 48
         num_blks= 16
-        net = NAFSSR(up_scale=upscale_factor, train_size=(1, 6, H, W), fast_imp=True, width=width, num_blks=num_blks, drop_path_rate=0.0)
+        net = NAFSSR(up_scale=upscale_factor, train_size=(1, 6, 30, 90), fast_imp=True, width=width, num_blks=num_blks, drop_path_rate=0.0)
     elif model_name == 'SSRDEFNet':
         net = SSRDEFNet(upscale_factor)
         net = torch.nn.DataParallel(net)
