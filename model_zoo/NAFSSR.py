@@ -20,6 +20,13 @@ import torch.nn.functional as F
 from models.BaseModel import BaseModel
 
 
+
+def conv_flop(N, in_ch, out_ch, K, bias=False):
+    if bias:
+        return N * (K**2 * in_ch + 1) * out_ch
+    return N * K**2 * in_ch * out_ch
+
+
 class AvgPool2d(nn.Module):
     def __init__(self, kernel_size=None, base_size=None, auto_pad=True, fast_imp=False, train_size=None):
         super().__init__()
@@ -190,6 +197,7 @@ class NAFBlock(nn.Module):
 
         self.beta = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
         self.gamma = nn.Parameter(torch.zeros((1, c, 1, 1)), requires_grad=True)
+        self.channel = c
 
     def forward(self, inp):
         x = inp
@@ -214,7 +222,19 @@ class NAFBlock(nn.Module):
 
         return y + x * self.gamma
 
-
+    def flop(self, H, W):
+        N = H * W
+        flop = 0
+        flop += 2 * H * W * self.channel # two layer norms
+        flop += conv_flop(N, self.channel, 2 * self.channel, 1, bias=True) # conv1
+        flop += conv_flop(N, 2*self.channel, 2 * self.channel, 3, bias=True) / 2*self.channel #conv2
+        flop += H * W * self.channel # sg
+        flop += conv_flop(1, self.channel, self.channel, 1, bias=True) # sca
+        flop += conv_flop(N, self.channel, self.channel, 1, bias=True) # conv3
+        flop += conv_flop(N, self.channel, 2* self.channel, 1, bias=True) # conv4
+        flop += H * W * self.channel # sg
+        flop += conv_flop(N, self.channel, self.channel, 1, bias=True) # conv5
+        return flop
 
 
 
@@ -236,6 +256,7 @@ class SCAM(nn.Module):
 
         self.l_proj2 = nn.Conv2d(c, c, kernel_size=1, stride=1, padding=0)
         self.r_proj2 = nn.Conv2d(c, c, kernel_size=1, stride=1, padding=0)
+        self.channel = c
 
     def forward(self, x_l, x_r):
         Q_l = self.l_proj1(self.norm_l(x_l)).permute(0, 2, 3, 1)  # B, H, W, c
@@ -254,6 +275,16 @@ class SCAM(nn.Module):
         F_r2l = F_r2l.permute(0, 3, 1, 2) * self.beta
         F_l2r = F_l2r.permute(0, 3, 1, 2) * self.gamma
         return x_l + F_r2l, x_r + F_l2r
+
+    def flop(self, H, W):
+        flop = 0
+        N = H * W
+        flop += 2 * N * self.channel # two norms
+        flop += 2 * conv_flop(N, self.channel, self.channel, 1) #proj 1
+        flop += 2 * conv_flop(N, self.channel, self.channel, 1) # proj 2
+        flop += H * (W**2) * self.channel # attention
+        flop += 2 * H * (W**2) * self.channel # f_r2l and f_l2r
+        return flop
 
 class DropPath(nn.Module):
     def __init__(self, drop_rate, module):
@@ -287,6 +318,12 @@ class NAFBlockSR(nn.Module):
             feats = self.fusion(*feats)
         return feats
 
+    def flop(self, H ,W):
+        flop = 0
+        flop += 2 * self.blk.flop(H, W)
+        flop += self.fusion.flop(H, W)
+        return flop
+
 class NAFNetSR(BaseModel):
     '''
     NAFNet for Super-Resolution
@@ -311,6 +348,7 @@ class NAFNetSR(BaseModel):
             nn.PixelShuffle(up_scale)
         )
         self.up_scale = up_scale
+        self.width = width
 
     def forward(self, x_left, x_right):
         inp = torch.cat([x_left[:, :3], x_right[:, :3]], dim=1)
@@ -324,6 +362,17 @@ class NAFNetSR(BaseModel):
         out = torch.cat([self.up(x) for x in feats], dim=1)
         out = out + inp_hr
         return out.chunk(2, dim=1)
+
+    def flop(self, H, W):
+        width = self.width
+        N = H * W
+        flop = 0
+        flop += 2 * conv_flop(N, 3, width, 3, True)
+        for module in self.body._modules.values():
+            flop += module.module.flop(H, W)
+        flop += 2 * conv_flop(N, width, width * self.up_scale ** 2, 3, True)
+        return flop
+
 
 class NAFSSR(Local_Base, NAFNetSR):
     def __init__(self, *args, train_size=(1, 6, 30, 90), fast_imp=False, fusion_from=-1, fusion_to=1000, **kwargs):
@@ -340,18 +389,16 @@ class NAFSSR(Local_Base, NAFNetSR):
 if __name__ == '__main__':
     num_blks = 16
     width = 48
-    droppath=0.1
-    train_size = (1, 6, 5, 5)
-    from ptflops import get_model_complexity_info
+    droppath = 0.0
+    train_size = (1, 6, 30, 90)
+    # from ptflops import get_model_complexity_info
 
     net = NAFSSR(up_scale=4, train_size=train_size, fast_imp=True, width=width, num_blks=num_blks, drop_path_rate=droppath)
-    x = torch.zeros(train_size)
-    inp_shape = (6, 20, 20)
+    print (net.flop(360, 640))
+    # FLOPS = 0
+    # macs, params = get_model_complexity_info(net, inp_shape, verbose=True, print_per_layer_stat=True)
 
-    FLOPS = 0
-    macs, params = get_model_complexity_info(net, inp_shape, verbose=True, print_per_layer_stat=True)
-
-    print(macs, params)
+    # print(macs, params)
 
 
     # from basicsr.models.archs.arch_util import measure_inference_speed

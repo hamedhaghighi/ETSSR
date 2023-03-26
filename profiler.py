@@ -5,12 +5,12 @@ from utils import check_input_size
 
 if __name__ == "__main__":
     
-    model_name = 'SSRDEFNet'
+    model_name = 'NAFSSR'
     H, W, C = 360, 640, 3
     input_size = (H, W)
     w_size = 15
     upscale_factor = 4
-    input_size = check_input_size(input_size, w_size)
+    # input_size = check_input_size(input_size, w_size)
     net = model_selection(
         model_name,
         upscale_factor,

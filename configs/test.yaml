@@ -3,12 +3,12 @@ device: 'cuda:0'
 data_dir: './data/Carla'
 checkpoints_dir: './checkpoints/test'
 input_channel: 3
-model: 'transformer_all_swin_CP'
+model: 'NAFSSR'
 w_size: 15
 input_resolution: [360, 640]
 sample_ratio : 1.0
 ckpt: '_best'
 batch_size: -1
 local_metric: False
-metric_for_all: True
+metric_for_all: False
 save_hr: False

@@ -10,8 +10,7 @@ class BaseModel(nn.Module):
         self.loss_names = ['SR']
 
     def get_losses(self):
-        loss_dict = {k: getattr(self, 'loss_' + k).data.cpu()
-                     for k in self.loss_names}
+        loss_dict = {k: getattr(self, 'loss_' + k).data.cpu() for k in self.loss_names}
         return loss_dict
 
     def calc_loss(self, LR_left, LR_right, HR_left, HR_right, cfg):
